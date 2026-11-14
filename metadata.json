@@ -1,0 +1,6 @@
+{
+  "name": "Aplikasi Rapor Karakter SD Islam Alam & Sains Al-Jannah",
+  "description": "Sistem Administrasi dan Pengolahan Rapor Karakter Siswa SD Islam Alam & Sains Al-Jannah",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
