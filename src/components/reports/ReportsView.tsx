@@ -469,7 +469,7 @@ export function ReportsView({
                 {/* Kanan: Wali Kelas (Titi Mangsa, Nama Guru, Tanpa NIP) */}
                 <div className="w-64 text-center">
                   <p className="font-semibold text-slate-700">{titiMangsaText}</p>
-                  <p className="font-bold text-slate-950 mt-1">Wali Kelas {student.className}</p>
+                  <p className="font-bold text-slate-950 mt-1">Wali Kelas</p>
                   <div className="h-24 flex flex-col justify-end items-center">
                     <p className="font-bold border-b-2 border-slate-800 pb-1 min-w-[170px] text-xs sm:text-sm">
                       {studentHomeroom?.name || '( ........................................... )'}
@@ -482,7 +482,11 @@ export function ReportsView({
               {/* Tengah Bawah: Kepala Sekolah (Dengan "Mengetahui,", Nama Kepsek, Tanpa NIP) */}
               <div className="mt-10 text-center text-xs sm:text-sm text-slate-900">
                 <p className="font-semibold text-slate-600">Mengetahui,</p>
-                <p className="font-bold text-slate-950 mt-1">Kepala Sekolah {schoolProfile.name}</p>
+                <p className="font-bold text-slate-950 mt-1">
+                  {schoolProfile.name.trim().toUpperCase() === 'SD ISLAM ALAM & SAINS AL-JANNAH'
+                    ? 'Kepala SD Islam Alam & Sains Al-Jannah'
+                    : `Kepala ${schoolProfile.name}`}
+                </p>
                 <div className="h-24 flex flex-col justify-end items-center">
                   <p className="font-bold border-b-2 border-slate-800 pb-1 min-w-[200px] text-xs sm:text-sm">
                     {schoolProfile.headmasterName || '( ........................................... )'}

@@ -275,22 +275,24 @@ export function DashboardView({
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => onNavigate('classes')}
-              className="w-full flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-slate-100 text-slate-800 font-semibold text-sm transition-colors text-left cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-purple-700 text-white flex items-center justify-center shrink-0">
-                  <Layers className="w-5 h-5" />
+            {isAdminLoggedIn && (
+              <button
+                type="button"
+                onClick={() => onNavigate('classes')}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-slate-100 text-slate-800 font-semibold text-sm transition-colors text-left cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-purple-700 text-white flex items-center justify-center shrink-0">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-xs text-slate-900">Data Kelas & Rombel</p>
+                    <p className="text-[11px] text-slate-500">Pengaturan rombel & wali kelas</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-bold text-xs text-slate-900">Data Kelas & Rombel</p>
-                  <p className="text-[11px] text-slate-500">Pengaturan rombel & wali kelas</p>
-                </div>
-              </div>
-              <ArrowRight className="w-4 h-4 text-slate-400" />
-            </button>
+                <ArrowRight className="w-4 h-4 text-slate-400" />
+              </button>
+            )}
           </div>
         </div>
       </div>

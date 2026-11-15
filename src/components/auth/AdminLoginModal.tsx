@@ -44,7 +44,7 @@ export function AdminLoginModal({ isOpen, onClose, onLogin }: AdminLoginModalPro
       isOpen={isOpen}
       onClose={onClose}
       title="Login Administrator"
-      subtitle="Masuk untuk mengakses Profil Sekolah, Data Guru, Data Siswa, dan Pengaturan"
+      subtitle="Masuk untuk mengakses Profil Sekolah, Data Guru, Data Kelas, Data Siswa, dan Pengaturan"
       maxWidth="sm"
     >
       <form onSubmit={handleSubmit} className="space-y-4">

@@ -3,6 +3,7 @@ import { CharacterIndicator, GradeCode, UserAccount } from '../types';
 export const ADMIN_ONLY_TABS = [
   'school-profile',
   'teachers',
+  'classes',
   'students',
   'settings'
 ] as const;

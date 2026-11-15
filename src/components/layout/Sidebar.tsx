@@ -124,11 +124,11 @@ export function Sidebar({
         <div className="p-5 border-b border-white/10 flex items-center gap-3.5 bg-black/10">
           <SchoolLogo size="md" logoUrl={logoUrl} />
           <div className="min-w-0 flex-1">
-            <h1 className="font-extrabold text-sm tracking-wide text-white leading-tight uppercase truncate">
-              {schoolName || 'SD Islam Al-Jannah'}
+            <h1 className="font-extrabold text-sm tracking-wide text-white leading-tight truncate">
+              E-Rapor Karakter
             </h1>
-            <p className="text-[11px] text-amber-300 font-semibold tracking-wider uppercase mt-0.5">
-              Rapor Karakter
+            <p className="text-[11px] text-amber-300 font-semibold tracking-wide mt-0.5 truncate">
+              SD IAS Al-Jannah
             </p>
           </div>
         </div>

@@ -288,7 +288,7 @@ function MainApp() {
                 />
               )}
 
-              {activeTab === 'classes' && (
+              {activeTab === 'classes' && isAdminLoggedIn && (
                 <ClassesView
                   classes={classes}
                   teachers={teachers}
