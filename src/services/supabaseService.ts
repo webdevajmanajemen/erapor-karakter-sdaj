@@ -27,11 +27,30 @@ export interface SupabaseDatabaseSnapshot {
   activityLogs: ActivityLog[];
 }
 
+declare const __SUPABASE_URL_FALLBACK__: string | undefined;
+declare const __SUPABASE_ANON_KEY_FALLBACK__: string | undefined;
+
 export function getEnvSupabaseConfig(): { url: string; anonKey: string } {
-  const env = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {};
+  const viteUrl =
+    typeof import.meta !== 'undefined' && (import.meta as any).env
+      ? String(import.meta.env.VITE_SUPABASE_URL || '').trim()
+      : '';
+  const viteKey =
+    typeof import.meta !== 'undefined' && (import.meta as any).env
+      ? String(import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim()
+      : '';
+  const fallbackUrl =
+    typeof __SUPABASE_URL_FALLBACK__ !== 'undefined'
+      ? String(__SUPABASE_URL_FALLBACK__ || '').trim()
+      : '';
+  const fallbackKey =
+    typeof __SUPABASE_ANON_KEY_FALLBACK__ !== 'undefined'
+      ? String(__SUPABASE_ANON_KEY_FALLBACK__ || '').trim()
+      : '';
+
   return {
-    url: String(env.VITE_SUPABASE_URL || '').trim(),
-    anonKey: String(env.VITE_SUPABASE_ANON_KEY || '').trim()
+    url: viteUrl || fallbackUrl,
+    anonKey: viteKey || fallbackKey
   };
 }
 
@@ -52,13 +71,24 @@ export function resolveSupabaseCredentials(savedConfig?: Partial<SupabaseConfig>
   return { url: '', anonKey: '', source: 'none' };
 }
 
+let cachedClient: SupabaseClient | null = null;
+let cachedClientKey = '';
+
 export function createSupabaseClientInstance(url: string, anonKey: string): SupabaseClient {
-  return createClient(url.trim(), anonKey.trim(), {
+  const cleanUrl = url.trim();
+  const cleanKey = anonKey.trim();
+  const cacheKey = `${cleanUrl}::${cleanKey}`;
+  if (cachedClient && cachedClientKey === cacheKey) {
+    return cachedClient;
+  }
+  cachedClient = createClient(cleanUrl, cleanKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false
     }
   });
+  cachedClientKey = cacheKey;
+  return cachedClient;
 }
 
 // ---------- Pure Row Mappers (camelCase <-> snake_case) ----------

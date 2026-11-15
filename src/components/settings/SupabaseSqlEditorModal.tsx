@@ -535,8 +535,33 @@ INSERT INTO public.sub_characters (id, category_id, name, "order") VALUES
                   <h4 className="font-bold text-slate-900 text-sm">Salin Project URL &amp; Anon Key</h4>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Masuk ke <strong>Project Settings &rarr; API</strong> (atau Data API &amp; API Keys) di Supabase, lalu salin <strong>Project URL</strong> dan <strong>anon public key</strong> ke form Pengaturan aplikasi (atau set <code className="bg-slate-100 px-1 rounded">VITE_SUPABASE_URL</code> dan <code className="bg-slate-100 px-1 rounded">VITE_SUPABASE_ANON_KEY</code> di file <code className="bg-slate-100 px-1 rounded">.env</code>).
+                  Masuk ke <strong>Project Settings &rarr; API</strong> di Supabase, lalu salin <strong>Project URL</strong> dan <strong>anon public key</strong> ke form Pengaturan aplikasi ini.
                 </p>
+              </div>
+
+              <div className="p-4 bg-amber-50/60 rounded-2xl border border-amber-200 shadow-xs space-y-2 md:col-span-2">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-7 h-7 rounded-full bg-slate-900 text-amber-300 font-extrabold text-xs flex items-center justify-center shrink-0">
+                    5
+                  </span>
+                  <h4 className="font-bold text-slate-900 text-sm">
+                    Deploy Netlify (Agar Otomatis Konek di Semua Profil Chrome &amp; Perangkat Guru)
+                  </h4>
+                </div>
+                <p className="text-xs text-slate-700 leading-relaxed">
+                  Jika Anda hanya mengisi URL &amp; Key lewat menu Pengaturan, kredensial hanya tersimpan di browser tersebut. Agar situs Netlify otomatis terhubung di semua browser/perangkat tanpa perlu input ulang:
+                </p>
+                <ol className="text-xs text-slate-700 list-decimal pl-4 space-y-1">
+                  <li>
+                    Buka dashboard <strong>Netlify</strong> &rarr; pilih situs Anda &rarr; <strong>Site configuration &rarr; Environment variables</strong>.
+                  </li>
+                  <li>
+                    Tambahkan 2 variabel: <code className="bg-white px-1.5 py-0.5 rounded border border-amber-200 font-bold">VITE_SUPABASE_URL</code> dan <code className="bg-white px-1.5 py-0.5 rounded border border-amber-200 font-bold">VITE_SUPABASE_ANON_KEY</code>.
+                  </li>
+                  <li>
+                    Buka tab <strong>Deploys &rarr; Trigger deploy &rarr; Clear cache and deploy site</strong> (jika deploy via drag-and-drop folder <code className="bg-white px-1 rounded">dist</code>, buat file <code className="bg-white px-1 rounded">.env</code> terlebih dahulu lalu jalankan <code className="bg-white px-1 rounded">npm run build</code> ulang sebelum upload ke Netlify).
+                  </li>
+                </ol>
               </div>
             </div>
           </div>

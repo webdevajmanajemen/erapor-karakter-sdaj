@@ -438,17 +438,36 @@ export function SettingsView({
             </div>
 
             <div
-              className={`p-3 border rounded-xl text-xs leading-relaxed space-y-1 ${
+              className={`p-3 border rounded-xl text-xs leading-relaxed space-y-1.5 ${
                 syncStatus.mode === 'supabase'
-                  ? 'bg-emerald-50/70 border-emerald-200/80 text-emerald-950'
+                  ? syncStatus.source === 'env'
+                    ? 'bg-emerald-50/70 border-emerald-200/80 text-emerald-950'
+                    : 'bg-amber-50/80 border-amber-200 text-amber-950'
                   : 'bg-blue-50/70 border-blue-200/80 text-blue-900'
               }`}
             >
-              <p className="font-bold">Status Database:</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-bold">Status Database:</p>
+                {syncStatus.mode === 'supabase' && (
+                  <span
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                      syncStatus.source === 'env'
+                        ? 'bg-emerald-200/80 text-emerald-950'
+                        : 'bg-amber-200/80 text-amber-950'
+                    }`}
+                  >
+                    {syncStatus.source === 'env'
+                      ? 'Aktif Global (Semua Browser)'
+                      : 'Aktif Lokal Browser Ini Saja'}
+                  </span>
+                )}
+              </div>
               <p>
                 {syncStatus.mode === 'supabase'
-                  ? 'Aplikasi aktif melakukan operasi CRUD (Tambah, Baca, Ubah, Hapus) langsung ke database PostgreSQL Supabase tanpa menyimpan data ke localStorage.'
-                  : 'Data aplikasi tidak lagi disimpan di localStorage browser. Masukkan Project URL & Anon Key Supabase Anda di bawah lalu klik Hubungkan untuk mulai CRUD langsung ke database Supabase.'}
+                  ? syncStatus.source === 'env'
+                    ? 'Aplikasi aktif melakukan CRUD ke Supabase untuk seluruh profil Chrome, laptop, dan HP guru melalui Environment Variables.'
+                    : 'CRUD Supabase sudah aktif di browser ini. Catatan: agar otomatis terkoneksi di profil Chrome lain atau perangkat guru pada Netlify, tambahkan VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY di Netlify Environment Variables lalu redeploy.'
+                  : 'Data aplikasi tidak lagi disimpan di localStorage browser. Masukkan Project URL & Anon Key Supabase Anda di bawah (atau atur di Netlify Environment Variables) agar CRUD langsung terhubung ke Supabase.'}
               </p>
             </div>
 
@@ -490,6 +509,28 @@ export function SettingsView({
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
+
+              {supabaseUrl.trim() && supabaseAnonKey.trim() && (
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-slate-600">
+                    Untuk deploy Netlify (semua browser otomatis konek):
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const envText = `VITE_SUPABASE_URL=${supabaseUrl.trim()}\nVITE_SUPABASE_ANON_KEY=${supabaseAnonKey.trim()}`;
+                      navigator.clipboard.writeText(envText);
+                      success(
+                        'Format Env Netlify Disalin!',
+                        'Tempel di Netlify → Site configuration → Environment variables, lalu redeploy.'
+                      );
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-bold shrink-0 cursor-pointer"
+                  >
+                    Salin Env Netlify
+                  </button>
+                </div>
+              )}
 
               <div className="flex flex-wrap justify-end gap-2 pt-1">
                 {syncStatus.mode === 'supabase' && (

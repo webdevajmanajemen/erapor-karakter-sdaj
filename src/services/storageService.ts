@@ -212,12 +212,15 @@ function runSupabaseWrite(label: string, op: (client: SupabaseClient) => Promise
 
 export function getSyncStatus(): {
   mode: 'supabase' | 'memory';
+  source: 'env' | 'config' | 'none';
   isSyncing: boolean;
   lastError: string | null;
 } {
   const client = ensureSupabaseClient();
+  const creds = resolveSupabaseCredentials(memoryStore.supabaseConfig);
   return {
     mode: client ? 'supabase' : 'memory',
+    source: client ? creds.source : 'none',
     isSyncing: isSyncingToSupabase,
     lastError: lastSupabaseError
   };
