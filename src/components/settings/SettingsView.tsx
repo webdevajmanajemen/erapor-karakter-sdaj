@@ -33,6 +33,7 @@ import {
 import { Modal } from '../ui/Modal';
 import { SupabaseSqlEditorModal } from './SupabaseSqlEditorModal';
 import { useToast } from '../../context/ToastContext';
+import * as storage from '../../services/storageService';
 
 interface SettingsViewProps {
   schoolProfile: SchoolProfile;
@@ -86,6 +87,11 @@ export function SettingsView({
   const [supabaseUrl, setSupabaseUrl] = useState(supabaseConfig.url);
   const [supabaseAnonKey, setSupabaseAnonKey] = useState(supabaseConfig.anonKey);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [isPushingData, setIsPushingData] = useState(false);
+  const [isPullingData, setIsPullingData] = useState(false);
+  const [connectionFeedback, setConnectionFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  const syncStatus = storage.getSyncStatus();
 
   // User Management Modal
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -106,29 +112,66 @@ export function SettingsView({
     success('Pengaturan Disimpan', 'Nama aplikasi berhasil diperbarui.');
   };
 
-  const handleSaveSupabase = (e: React.FormEvent) => {
+  const handleSaveSupabase = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsTestingConnection(true);
-
-    setTimeout(() => {
-      setIsTestingConnection(false);
-      const isConfigured = Boolean(supabaseUrl.trim() && supabaseAnonKey.trim());
-      onUpdateSupabaseConfig({
-        url: supabaseUrl.trim(),
-        anonKey: supabaseAnonKey.trim(),
-        isConnected: isConfigured,
-        autoSync: isConfigured
+    setConnectionFeedback(null);
+    if (!supabaseUrl.trim() || !supabaseAnonKey.trim()) {
+      storage.disconnectSupabase();
+      setConnectionFeedback({
+        type: 'err',
+        text: 'Masukkan Supabase Project URL dan Anon Public API Key terlebih dahulu.'
       });
+      error('Kredensial Kosong', 'Harap isi Project URL dan Anon Public API Key Supabase.');
+      return;
+    }
 
-      if (isConfigured) {
-        success(
-          'Konfigurasi Supabase Disimpan',
-          'Arsitektur adaptor Supabase telah dikonfigurasi. Data tersimpan di penyimpanan lokal dan siap disinkronkan ke Supabase Cloud.'
-        );
+    setIsTestingConnection(true);
+    try {
+      const result = await storage.connectAndTestSupabase(supabaseUrl.trim(), supabaseAnonKey.trim());
+      if (result.ok) {
+        setConnectionFeedback({ type: 'ok', text: result.message });
+        success('Supabase Terhubung!', result.message);
       } else {
-        success('Mode Penyimpanan Lokal Aktif', 'Aplikasi menggunakan penyimpanan offline browser yang cepat & andal.');
+        setConnectionFeedback({ type: 'err', text: result.message });
+        error('Gagal Menghubungkan Supabase', result.message);
       }
-    }, 600);
+    } catch (err: any) {
+      const msg = err?.message || 'Gagal menguji koneksi Supabase.';
+      setConnectionFeedback({ type: 'err', text: msg });
+      error('Gagal Menghubungkan Supabase', msg);
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
+  const handlePushToSupabase = async () => {
+    setIsPushingData(true);
+    try {
+      await storage.pushCurrentDataToSupabase();
+      success('Sinkronisasi Berhasil', 'Seluruh data saat ini berhasil dikirim ke database Supabase.');
+    } catch (err: any) {
+      error('Gagal Mengirim Data', err?.message || 'Pastikan tabel Supabase sudah dibuat sesuai DDL.');
+    } finally {
+      setIsPushingData(false);
+    }
+  };
+
+  const handlePullFromSupabase = async () => {
+    setIsPullingData(true);
+    try {
+      await storage.refreshFromSupabase();
+      success('Data Dimuat Ulang', 'Data terbaru berhasil diambil langsung dari database Supabase.');
+    } catch (err: any) {
+      error('Gagal Mengambil Data', err?.message || 'Periksa koneksi Supabase Anda.');
+    } finally {
+      setIsPullingData(false);
+    }
+  };
+
+  const handleDisconnectSupabase = () => {
+    storage.disconnectSupabase();
+    setConnectionFeedback(null);
+    success('Koneksi Diputus', 'Koneksi ke Supabase diputus. Aplikasi beralih ke mode memori sementara.');
   };
 
   // Open User modal
@@ -349,8 +392,14 @@ export function SettingsView({
                 <Database className="w-4 h-4 text-emerald-600" />
                 Integrasi Database SUPABASE
               </h3>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                Arsitektur Siap
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                  syncStatus.mode === 'supabase'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                {syncStatus.mode === 'supabase' ? 'Terhubung (CRUD Live)' : 'Belum Terhubung'}
               </span>
             </div>
 
@@ -362,11 +411,11 @@ export function SettingsView({
                   Query SQL Editor Supabase
                 </span>
                 <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900">
-                  Siap Salin
+                  10 Tabel Lengkap
                 </span>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Salin skrip pembuatan 9 tabel, relasi, RLS policies, dan data awal untuk dijalankan langsung di dashboard Supabase Anda.
+                Salin skrip pembuatan 10 tabel, kolom lengkap (NISN, Level, Awal Deskripsi A/B/C, Akun), RLS policies, dan data awal untuk dijalankan di SQL Editor Supabase Anda.
               </p>
               <div className="flex flex-wrap gap-2 pt-1">
                 <button
@@ -388,12 +437,32 @@ export function SettingsView({
               </div>
             </div>
 
-            <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs text-blue-900 leading-relaxed space-y-1">
-              <p className="font-bold">Status Penyimpanan:</p>
+            <div
+              className={`p-3 border rounded-xl text-xs leading-relaxed space-y-1 ${
+                syncStatus.mode === 'supabase'
+                  ? 'bg-emerald-50/70 border-emerald-200/80 text-emerald-950'
+                  : 'bg-blue-50/70 border-blue-200/80 text-blue-900'
+              }`}
+            >
+              <p className="font-bold">Status Database:</p>
               <p>
-                Aplikasi saat ini aktif menggunakan penyimpanan lokal terenkripsi di browser. Jika Anda memiliki project Supabase, masukkan kredensial URL & Anon Key di bawah untuk menghubungkan langsung database cloud:
+                {syncStatus.mode === 'supabase'
+                  ? 'Aplikasi aktif melakukan operasi CRUD (Tambah, Baca, Ubah, Hapus) langsung ke database PostgreSQL Supabase tanpa menyimpan data ke localStorage.'
+                  : 'Data aplikasi tidak lagi disimpan di localStorage browser. Masukkan Project URL & Anon Key Supabase Anda di bawah lalu klik Hubungkan untuk mulai CRUD langsung ke database Supabase.'}
               </p>
             </div>
+
+            {connectionFeedback && (
+              <div
+                className={`p-3 rounded-xl border text-xs font-semibold ${
+                  connectionFeedback.type === 'ok'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-rose-50 border-rose-200 text-rose-700'
+                }`}
+              >
+                {connectionFeedback.text}
+              </div>
+            )}
 
             <form onSubmit={handleSaveSupabase} className="space-y-3">
               <div>
@@ -404,7 +473,7 @@ export function SettingsView({
                   type="text"
                   value={supabaseUrl}
                   onChange={e => setSupabaseUrl(e.target.value)}
-                  placeholder="https://your-project.supabase.co"
+                  placeholder="https://your-project-ref.supabase.co"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
@@ -422,13 +491,40 @@ export function SettingsView({
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-1">
+              <div className="flex flex-wrap justify-end gap-2 pt-1">
+                {syncStatus.mode === 'supabase' && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={isPullingData}
+                      onClick={handlePullFromSupabase}
+                      className="px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-bold transition-colors cursor-pointer disabled:opacity-60"
+                    >
+                      {isPullingData ? 'Memuat...' : 'Muat Ulang dari Supabase'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPushingData}
+                      onClick={handlePushToSupabase}
+                      className="px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold transition-colors cursor-pointer disabled:opacity-60"
+                    >
+                      {isPushingData ? 'Mengirim...' : 'Kirim Data Saat Ini ke Supabase'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDisconnectSupabase}
+                      className="px-3 py-2 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      Putuskan
+                    </button>
+                  </>
+                )}
                 <button
                   type="submit"
                   disabled={isTestingConnection}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-60"
                 >
-                  {isTestingConnection ? 'Menyimpan & Menguji...' : 'Simpan Kredensial Supabase'}
+                  {isTestingConnection ? 'Menguji Koneksi...' : 'Hubungkan & Uji Koneksi Supabase'}
                 </button>
               </div>
             </form>
@@ -692,6 +788,7 @@ export function SettingsView({
         subCharacters={subCharacters}
         indicators={indicators}
         gradeOptions={gradeOptions}
+        users={users}
       />
     </div>
   );

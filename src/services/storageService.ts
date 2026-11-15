@@ -1,3 +1,4 @@
+import { SupabaseClient } from '@supabase/supabase-js';
 import {
   SchoolProfile,
   ClassItem,
@@ -23,30 +24,107 @@ import {
   INITIAL_ASSESSMENTS,
   INITIAL_ACTIVITY_LOGS
 } from '../data/initialData';
+import {
+  resolveSupabaseCredentials,
+  createSupabaseClientInstance,
+  testSupabaseConnection,
+  fetchAllFromSupabase,
+  seedAllToSupabase,
+  upsertSchoolProfileDb,
+  upsertClassDb,
+  upsertClassesDb,
+  deleteClassDb,
+  upsertTeacherDb,
+  deleteTeacherDb,
+  upsertStudentDb,
+  bulkUpdateStudentsClassDb,
+  deleteStudentDb,
+  upsertSubCharacterDb,
+  deleteSubCharacterDb,
+  upsertIndicatorDb,
+  deleteIndicatorDb,
+  upsertGradeOptionsDb,
+  upsertAssessmentDb,
+  syncUsersDb,
+  insertActivityLogDb,
+  clearDummyDataInSupabase,
+  SupabaseDatabaseSnapshot
+} from './supabaseService';
 
-const KEYS = {
-  SCHOOL_PROFILE: 'aljannah_school_profile',
-  CLASSES: 'aljannah_classes',
-  TEACHERS: 'aljannah_teachers',
-  STUDENTS: 'aljannah_students',
-  SUB_CHARACTERS: 'aljannah_sub_characters',
-  INDICATORS: 'aljannah_indicators',
-  GRADE_OPTIONS: 'aljannah_grade_options',
-  USERS: 'aljannah_users',
-  ACTIVE_USER: 'aljannah_active_user',
-  ASSESSMENTS: 'aljannah_assessments',
-  ACTIVITY_LOGS: 'aljannah_activity_logs',
-  SUPABASE_CONFIG: 'aljannah_supabase_config',
-  ADMIN_SESSION: 'aljannah_admin_session'
+// Only connection metadata & admin session key are stored in browser storage;
+// all application domain data lives in memory + Supabase PostgreSQL (no localStorage data tables).
+const CONFIG_STORAGE_KEY = 'aljannah_supabase_config';
+const ADMIN_SESSION_KEY = 'aljannah_admin_session';
+
+const LEGACY_DATA_KEYS = [
+  'aljannah_school_profile',
+  'aljannah_classes',
+  'aljannah_teachers',
+  'aljannah_students',
+  'aljannah_sub_characters',
+  'aljannah_indicators',
+  'aljannah_grade_options',
+  'aljannah_users',
+  'aljannah_active_user',
+  'aljannah_assessments',
+  'aljannah_activity_logs'
+];
+
+interface MemoryStore {
+  schoolProfile: SchoolProfile;
+  classes: ClassItem[];
+  teachers: Teacher[];
+  students: Student[];
+  subCharacters: SubCharacter[];
+  indicators: CharacterIndicator[];
+  gradeOptions: GradeOption[];
+  users: UserAccount[];
+  activeUser: UserAccount;
+  assessments: AssessmentRecord[];
+  activityLogs: ActivityLog[];
+  supabaseConfig: SupabaseConfig;
+}
+
+const memoryStore: MemoryStore = {
+  schoolProfile: { ...INITIAL_SCHOOL_PROFILE },
+  classes: INITIAL_CLASSES.map(c => ({ ...c })),
+  teachers: INITIAL_TEACHERS.map(t => ({ ...t })),
+  students: INITIAL_STUDENTS.map(s => ({ ...s })),
+  subCharacters: INITIAL_SUB_CHARACTERS.map(sc => ({ ...sc })),
+  indicators: INITIAL_INDICATORS.map(i => ({ ...i })),
+  gradeOptions: INITIAL_GRADE_OPTIONS.map(g => ({ ...g })),
+  users: INITIAL_USERS.map(u => ({ ...u })),
+  activeUser: { ...(INITIAL_USERS[1] || INITIAL_USERS[0]) },
+  assessments: INITIAL_ASSESSMENTS.map(a => ({ ...a })),
+  activityLogs: INITIAL_ACTIVITY_LOGS.map(l => ({ ...l })),
+  supabaseConfig: {
+    url: '',
+    anonKey: '',
+    isConnected: false,
+    autoSync: false
+  }
 };
 
+let activeSupabaseClient: SupabaseClient | null = null;
+let isSyncingToSupabase = false;
+let lastSupabaseError: string | null = null;
+
 type StorageChangeListener = () => void;
+type SyncErrorListener = (message: string) => void;
 const listeners: Set<StorageChangeListener> = new Set();
+const errorListeners: Set<SyncErrorListener> = new Set();
 
 export function subscribeToDataChanges(listener: StorageChangeListener): () => void {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
+  };
+}
+
+export function subscribeToSyncErrors(listener: SyncErrorListener): () => void {
+  errorListeners.add(listener);
+  return () => {
+    errorListeners.delete(listener);
   };
 }
 
@@ -60,185 +138,320 @@ function notifyChange(): void {
   });
 }
 
-function getItem<T>(key: string, defaultValue: T): T {
+function notifySyncError(message: string): void {
+  lastSupabaseError = message;
+  errorListeners.forEach(fn => {
+    try {
+      fn(message);
+    } catch (e) {
+      console.error('Error in sync error listener', e);
+    }
+  });
+  notifyChange();
+}
+
+function readStoredSupabaseConfig(): SupabaseConfig {
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return defaultValue;
-    return JSON.parse(raw) as T;
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(CONFIG_STORAGE_KEY) : null;
+    if (raw) {
+      const parsed = JSON.parse(raw) as SupabaseConfig;
+      return {
+        url: parsed.url || '',
+        anonKey: parsed.anonKey || '',
+        isConnected: Boolean(parsed.isConnected),
+        autoSync: Boolean(parsed.autoSync)
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return { url: '', anonKey: '', isConnected: false, autoSync: false };
+}
+
+function writeStoredSupabaseConfig(config: SupabaseConfig): void {
+  memoryStore.supabaseConfig = config;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
+    }
   } catch (e) {
-    console.error(`Failed to read ${key} from storage`, e);
-    return defaultValue;
+    console.error('Failed to store Supabase config', e);
   }
 }
 
-function setItem<T>(key: string, value: T): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-    notifyChange();
-  } catch (e) {
-    console.error(`Failed to write ${key} to storage`, e);
+function ensureSupabaseClient(): SupabaseClient | null {
+  if (activeSupabaseClient) return activeSupabaseClient;
+  const creds = resolveSupabaseCredentials(memoryStore.supabaseConfig);
+  if (creds.url && creds.anonKey && (creds.source === 'env' || memoryStore.supabaseConfig.isConnected)) {
+    activeSupabaseClient = createSupabaseClientInstance(creds.url, creds.anonKey);
+    return activeSupabaseClient;
   }
+  return null;
+}
+
+function runSupabaseWrite(label: string, op: (client: SupabaseClient) => Promise<void>): void {
+  const client = ensureSupabaseClient();
+  if (!client) return;
+
+  isSyncingToSupabase = true;
+  notifyChange();
+
+  op(client)
+    .then(() => {
+      lastSupabaseError = null;
+    })
+    .catch((err: any) => {
+      console.error(`Supabase CRUD error (${label}):`, err);
+      notifySyncError(`Gagal menyimpan ${label} ke Supabase: ${err?.message || String(err)}`);
+    })
+    .finally(() => {
+      isSyncingToSupabase = false;
+      notifyChange();
+    });
+}
+
+export function getSyncStatus(): {
+  mode: 'supabase' | 'memory';
+  isSyncing: boolean;
+  lastError: string | null;
+} {
+  const client = ensureSupabaseClient();
+  return {
+    mode: client ? 'supabase' : 'memory',
+    isSyncing: isSyncingToSupabase,
+    lastError: lastSupabaseError
+  };
 }
 
 export function initializeStorageIfNeeded(): void {
-  const existingProfileRaw = localStorage.getItem(KEYS.SCHOOL_PROFILE);
-  if (!existingProfileRaw) {
-    localStorage.setItem(KEYS.SCHOOL_PROFILE, JSON.stringify(INITIAL_SCHOOL_PROFILE));
-  } else {
-    try {
-      const parsed = JSON.parse(existingProfileRaw);
-      if (!parsed.logoUrl || parsed.logoUrl.includes('facebook.com')) {
-        parsed.logoUrl = INITIAL_SCHOOL_PROFILE.logoUrl;
-        localStorage.setItem(KEYS.SCHOOL_PROFILE, JSON.stringify(parsed));
-      }
-    } catch {
-      localStorage.setItem(KEYS.SCHOOL_PROFILE, JSON.stringify(INITIAL_SCHOOL_PROFILE));
+  // Remove legacy localStorage data tables so the app no longer stores app records in localStorage
+  try {
+    if (typeof localStorage !== 'undefined') {
+      LEGACY_DATA_KEYS.forEach(k => localStorage.removeItem(k));
     }
+  } catch {
+    // ignore
   }
-  if (!localStorage.getItem(KEYS.CLASSES)) {
-    localStorage.setItem(KEYS.CLASSES, JSON.stringify(INITIAL_CLASSES));
-  }
-  if (!localStorage.getItem(KEYS.TEACHERS)) {
-    localStorage.setItem(KEYS.TEACHERS, JSON.stringify(INITIAL_TEACHERS));
+
+  const storedCfg = readStoredSupabaseConfig();
+  const creds = resolveSupabaseCredentials(storedCfg);
+  if (creds.source === 'env') {
+    memoryStore.supabaseConfig = {
+      url: creds.url,
+      anonKey: creds.anonKey,
+      isConnected: true,
+      autoSync: true
+    };
+    activeSupabaseClient = createSupabaseClientInstance(creds.url, creds.anonKey);
   } else {
-    try {
-      const parsedTeachers = JSON.parse(localStorage.getItem(KEYS.TEACHERS) || '[]');
-      if (Array.isArray(parsedTeachers)) {
-        const legacyDemoNipToCode: Record<string, string> = {
-          '19840315 200801 1 007': 'KG001',
-          '19881120 201101 2 012': 'KG002',
-          '19900214 201402 1 005': 'KG003',
-          '19920805 201601 2 018': 'KG004',
-          '19870619 201001 1 009': 'KG005',
-          '19940110 201802 2 021': 'KG006'
-        };
-        const normalized = parsedTeachers.map((t: any, idx: number) => {
-          const rawCode = String(t.code || t.nip || '').trim();
-          const migratedCode = legacyDemoNipToCode[rawCode] || rawCode || `KG${String(idx + 1).padStart(3, '0')}`;
-          const normalizedRole =
-            t.role === 'Guru Bidang Studi' ? 'Guru Bidang' : t.role || 'Guru Kelas';
-          const { nip: _removedNip, ...rest } = t;
-          return {
-            ...rest,
-            code: migratedCode,
-            role: normalizedRole,
-            teachingClass: t.teachingClass ?? (t.assignedClass || (normalizedRole === 'Guru Bidang' ? 'Semua Kelas' : ''))
-          };
-        });
-        localStorage.setItem(KEYS.TEACHERS, JSON.stringify(normalized));
-      }
-    } catch {
-      localStorage.setItem(KEYS.TEACHERS, JSON.stringify(INITIAL_TEACHERS));
+    memoryStore.supabaseConfig = storedCfg;
+    if (storedCfg.url && storedCfg.anonKey && storedCfg.isConnected) {
+      activeSupabaseClient = createSupabaseClientInstance(storedCfg.url, storedCfg.anonKey);
     }
-  }
-  if (!localStorage.getItem(KEYS.STUDENTS)) {
-    localStorage.setItem(KEYS.STUDENTS, JSON.stringify(INITIAL_STUDENTS));
-  }
-  if (!localStorage.getItem(KEYS.SUB_CHARACTERS)) {
-    localStorage.setItem(KEYS.SUB_CHARACTERS, JSON.stringify(INITIAL_SUB_CHARACTERS));
-  }
-  const rawIndicators = localStorage.getItem(KEYS.INDICATORS);
-  if (!rawIndicators) {
-    localStorage.setItem(KEYS.INDICATORS, JSON.stringify(INITIAL_INDICATORS));
-  } else {
-    try {
-      const parsedInd = JSON.parse(rawIndicators);
-      if (Array.isArray(parsedInd)) {
-        const upgraded = parsedInd.map((ind: any) => {
-          const fallback = INITIAL_INDICATORS.find(init => init.id === ind.id);
-          return {
-            ...ind,
-            level: ind.level || 1,
-            descriptionPrefixA: ind.descriptionPrefixA ?? fallback?.descriptionPrefixA ?? ind.defaultDescriptionPrefix ?? '',
-            descriptionPrefixB: ind.descriptionPrefixB ?? fallback?.descriptionPrefixB ?? ind.defaultDescriptionPrefix ?? '',
-            descriptionPrefixC: ind.descriptionPrefixC ?? fallback?.descriptionPrefixC ?? ind.defaultDescriptionPrefix ?? ''
-          };
-        });
-        // If still on old 9 items without level 2, update to INITIAL_INDICATORS
-        if (upgraded.length <= 9) {
-          localStorage.setItem(KEYS.INDICATORS, JSON.stringify(INITIAL_INDICATORS));
-        } else {
-          localStorage.setItem(KEYS.INDICATORS, JSON.stringify(upgraded));
-        }
-      }
-    } catch {
-      localStorage.setItem(KEYS.INDICATORS, JSON.stringify(INITIAL_INDICATORS));
-    }
-  }
-  if (!localStorage.getItem(KEYS.GRADE_OPTIONS)) {
-    localStorage.setItem(KEYS.GRADE_OPTIONS, JSON.stringify(INITIAL_GRADE_OPTIONS));
-  }
-  const rawUsers = localStorage.getItem(KEYS.USERS);
-  if (!rawUsers) {
-    localStorage.setItem(KEYS.USERS, JSON.stringify(INITIAL_USERS));
-  } else {
-    try {
-      const parsedUsers = JSON.parse(rawUsers);
-      if (Array.isArray(parsedUsers)) {
-        const hasWebdevaj = parsedUsers.some((u: any) => u.role === 'admin' && u.username === 'webdevaj');
-        let migratedUsers = parsedUsers.map((u: any) => {
-          if (u.id === 'u-admin' && u.username === 'admin') {
-            return { ...u, username: 'webdevaj', password: u.password || '@w3bd3vAJ', name: 'Administrator' };
-          }
-          if (u.role === 'admin' && u.username === 'webdevaj' && !u.password) {
-            return { ...u, password: '@w3bd3vAJ' };
-          }
-          return u;
-        });
-        if (!hasWebdevaj && !migratedUsers.some((u: any) => u.username === 'webdevaj')) {
-          migratedUsers = [INITIAL_USERS[0], ...migratedUsers];
-        }
-        localStorage.setItem(KEYS.USERS, JSON.stringify(migratedUsers));
-      }
-    } catch {
-      localStorage.setItem(KEYS.USERS, JSON.stringify(INITIAL_USERS));
-    }
-  }
-  if (!localStorage.getItem(KEYS.ACTIVE_USER)) {
-    localStorage.setItem(KEYS.ACTIVE_USER, JSON.stringify(INITIAL_USERS[1] || INITIAL_USERS[0]));
-  }
-  if (!localStorage.getItem(KEYS.ASSESSMENTS)) {
-    localStorage.setItem(KEYS.ASSESSMENTS, JSON.stringify(INITIAL_ASSESSMENTS));
-  }
-  if (!localStorage.getItem(KEYS.ACTIVITY_LOGS)) {
-    localStorage.setItem(KEYS.ACTIVITY_LOGS, JSON.stringify(INITIAL_ACTIVITY_LOGS));
-  }
-  if (!localStorage.getItem(KEYS.SUPABASE_CONFIG)) {
-    localStorage.setItem(
-      KEYS.SUPABASE_CONFIG,
-      JSON.stringify({
-        url: '',
-        anonKey: '',
-        isConnected: false,
-        autoSync: false
-      } as SupabaseConfig)
-    );
   }
 }
 
-// School Profile
+function applySnapshotToMemory(snapshot: Partial<SupabaseDatabaseSnapshot>): void {
+  if (snapshot.schoolProfile) memoryStore.schoolProfile = snapshot.schoolProfile;
+  if (snapshot.classes) memoryStore.classes = snapshot.classes;
+  if (snapshot.teachers) memoryStore.teachers = snapshot.teachers;
+  if (snapshot.students) memoryStore.students = snapshot.students;
+  if (snapshot.subCharacters) memoryStore.subCharacters = snapshot.subCharacters;
+  if (snapshot.indicators) memoryStore.indicators = snapshot.indicators;
+  if (snapshot.gradeOptions && snapshot.gradeOptions.length > 0) memoryStore.gradeOptions = snapshot.gradeOptions;
+  if (snapshot.assessments) memoryStore.assessments = snapshot.assessments;
+  if (snapshot.users && snapshot.users.length > 0) memoryStore.users = snapshot.users;
+  if (snapshot.activityLogs) memoryStore.activityLogs = snapshot.activityLogs;
+}
+
+function buildCurrentSnapshot(): SupabaseDatabaseSnapshot {
+  return {
+    schoolProfile: getSchoolProfile(),
+    classes: getClasses(),
+    teachers: getTeachers(),
+    students: getStudents(),
+    subCharacters: getSubCharacters(),
+    indicators: getIndicators(),
+    gradeOptions: getGradeOptions(),
+    assessments: getAssessments(),
+    users: getUsers(),
+    activityLogs: getActivityLogs()
+  };
+}
+
+export async function syncFromSupabaseOnStartup(): Promise<{
+  connected: boolean;
+  seeded?: boolean;
+  error?: string;
+}> {
+  const creds = resolveSupabaseCredentials(memoryStore.supabaseConfig);
+  if (!creds.url || !creds.anonKey) {
+    return { connected: false };
+  }
+  if (creds.source === 'config' && !memoryStore.supabaseConfig.isConnected) {
+    return { connected: false };
+  }
+
+  try {
+    const client = createSupabaseClientInstance(creds.url, creds.anonKey);
+    activeSupabaseClient = client;
+    isSyncingToSupabase = true;
+    notifyChange();
+
+    const { isEmptyDatabase, snapshot } = await fetchAllFromSupabase(client);
+    if (isEmptyDatabase) {
+      // Seed initial school structure on first connection to an empty Supabase database
+      await seedAllToSupabase(client, buildCurrentSnapshot());
+      lastSupabaseError = null;
+      return { connected: true, seeded: true };
+    }
+
+    applySnapshotToMemory(snapshot);
+    lastSupabaseError = null;
+    return { connected: true, seeded: false };
+  } catch (err: any) {
+    const msg = err?.message || String(err);
+    lastSupabaseError = msg;
+    return { connected: false, error: msg };
+  } finally {
+    isSyncingToSupabase = false;
+    notifyChange();
+  }
+}
+
+export async function connectAndTestSupabase(
+  url: string,
+  anonKey: string
+): Promise<{ ok: boolean; hasTables: boolean; seeded?: boolean; message: string }> {
+  const testRes = await testSupabaseConnection(url, anonKey);
+  if (!testRes.ok) {
+    writeStoredSupabaseConfig({
+      url: url.trim(),
+      anonKey: anonKey.trim(),
+      isConnected: false,
+      autoSync: false
+    });
+    activeSupabaseClient = null;
+    notifyChange();
+    return testRes;
+  }
+
+  const client = createSupabaseClientInstance(url.trim(), anonKey.trim());
+  activeSupabaseClient = client;
+
+  const newConfig: SupabaseConfig = {
+    url: url.trim(),
+    anonKey: anonKey.trim(),
+    isConnected: true,
+    autoSync: true
+  };
+  writeStoredSupabaseConfig(newConfig);
+
+  try {
+    isSyncingToSupabase = true;
+    notifyChange();
+    const { isEmptyDatabase, snapshot } = await fetchAllFromSupabase(client);
+    let seeded = false;
+    if (isEmptyDatabase) {
+      await seedAllToSupabase(client, buildCurrentSnapshot());
+      seeded = true;
+    } else {
+      applySnapshotToMemory(snapshot);
+    }
+    lastSupabaseError = null;
+    notifyChange();
+    return {
+      ok: true,
+      hasTables: true,
+      seeded,
+      message: seeded
+        ? 'Berhasil terhubung ke Supabase & data awal berhasil dikirim ke database!'
+        : 'Berhasil terhubung & menyinkronkan data dari database Supabase!'
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      hasTables: testRes.hasTables,
+      message: err?.message || 'Gagal membaca tabel Supabase.'
+    };
+  } finally {
+    isSyncingToSupabase = false;
+    notifyChange();
+  }
+}
+
+export async function pushCurrentDataToSupabase(): Promise<void> {
+  const client = ensureSupabaseClient();
+  if (!client) {
+    throw new Error('Supabase belum terhubung. Simpan Project URL dan Anon Key terlebih dahulu.');
+  }
+  isSyncingToSupabase = true;
+  notifyChange();
+  try {
+    await seedAllToSupabase(client, buildCurrentSnapshot());
+    lastSupabaseError = null;
+  } finally {
+    isSyncingToSupabase = false;
+    notifyChange();
+  }
+}
+
+export async function refreshFromSupabase(): Promise<void> {
+  const client = ensureSupabaseClient();
+  if (!client) {
+    throw new Error('Supabase belum terhubung.');
+  }
+  isSyncingToSupabase = true;
+  notifyChange();
+  try {
+    const { snapshot } = await fetchAllFromSupabase(client);
+    applySnapshotToMemory(snapshot);
+    lastSupabaseError = null;
+  } finally {
+    isSyncingToSupabase = false;
+    notifyChange();
+  }
+}
+
+export function disconnectSupabase(): void {
+  activeSupabaseClient = null;
+  lastSupabaseError = null;
+  writeStoredSupabaseConfig({
+    url: memoryStore.supabaseConfig.url,
+    anonKey: memoryStore.supabaseConfig.anonKey,
+    isConnected: false,
+    autoSync: false
+  });
+  notifyChange();
+}
+
+// ---------- School Profile ----------
+
 export function getSchoolProfile(): SchoolProfile {
-  const profile = getItem<SchoolProfile>(KEYS.SCHOOL_PROFILE, INITIAL_SCHOOL_PROFILE);
-  // Auto-upgrade legacy Facebook link or empty logo to official local Al-Jannah logo
+  const profile = memoryStore.schoolProfile;
   if (!profile.logoUrl || profile.logoUrl.includes('facebook.com')) {
     profile.logoUrl = '/assets/aistudio/logo-AJ-rapor_c08ed6e7.png';
-    setItem(KEYS.SCHOOL_PROFILE, profile);
   }
   return profile;
 }
 
 export function saveSchoolProfile(profile: SchoolProfile): void {
-  setItem(KEYS.SCHOOL_PROFILE, profile);
+  memoryStore.schoolProfile = profile;
+  notifyChange();
+  runSupabaseWrite('Profil Sekolah', client => upsertSchoolProfileDb(client, profile));
   addActivityLog('school', 'Profil Sekolah Diperbarui', `Informasi sekolah dan titi mangsa telah diperbarui.`);
 }
 
-// Classes
+// ---------- Classes ----------
+
 export function getClasses(): ClassItem[] {
-  return getItem<ClassItem[]>(KEYS.CLASSES, INITIAL_CLASSES);
+  return memoryStore.classes;
 }
 
 export function saveClasses(classes: ClassItem[]): void {
-  setItem(KEYS.CLASSES, classes);
+  memoryStore.classes = classes;
+  notifyChange();
+  runSupabaseWrite('Data Kelas', client => upsertClassesDb(client, classes));
 }
 
 export function addClass(newClass: ClassItem): void {
@@ -246,39 +459,45 @@ export function addClass(newClass: ClassItem): void {
   if (current.some(c => c.name.toLowerCase() === newClass.name.toLowerCase())) {
     throw new Error(`Kelas ${newClass.name} sudah ada.`);
   }
-  saveClasses([...current, newClass]);
+  memoryStore.classes = [...current, newClass];
+  notifyChange();
+  runSupabaseWrite('Tambah Kelas', client => upsertClassDb(client, newClass));
   addActivityLog('system', 'Kelas Baru Ditambahkan', `Kelas ${newClass.name} berhasil dibuat.`);
 }
 
 export function updateClass(updated: ClassItem): void {
   const current = getClasses();
-  saveClasses(current.map(c => (c.id === updated.id ? updated : c)));
+  memoryStore.classes = current.map(c => (c.id === updated.id ? updated : c));
+  notifyChange();
+  runSupabaseWrite('Update Kelas', client => upsertClassDb(client, updated));
 }
 
 export function deleteClass(classId: string): void {
   const current = getClasses();
   const cls = current.find(c => c.id === classId);
-  saveClasses(current.filter(c => c.id !== classId));
+  memoryStore.classes = current.filter(c => c.id !== classId);
+  notifyChange();
+  runSupabaseWrite('Hapus Kelas', client => deleteClassDb(client, classId));
   if (cls) {
     addActivityLog('system', 'Kelas Dihapus', `Kelas ${cls.name} telah dihapus.`);
   }
 }
 
-// Teachers
+// ---------- Teachers ----------
+
 export function getTeachers(): Teacher[] {
-  const raw = getItem<any[]>(KEYS.TEACHERS, INITIAL_TEACHERS);
-  if (!Array.isArray(raw)) return INITIAL_TEACHERS;
-  return raw.map((t, idx) => ({
+  return memoryStore.teachers.map((t, idx) => ({
     ...t,
-    code: String(t.code || t.nip || `KG${String(idx + 1).padStart(3, '0')}`).trim(),
-    role: t.role === 'Guru Bidang Studi' ? 'Guru Bidang' : (t.role || 'Guru Kelas'),
+    code: String(t.code || `KG${String(idx + 1).padStart(3, '0')}`).trim(),
+    role: (t.role as string) === 'Guru Bidang Studi' ? 'Guru Bidang' : t.role || 'Guru Kelas',
     assignedClass: t.assignedClass || '',
     teachingClass: t.teachingClass ?? (t.assignedClass || '')
   }));
 }
 
 export function saveTeachers(teachers: Teacher[]): void {
-  setItem(KEYS.TEACHERS, teachers);
+  memoryStore.teachers = teachers;
+  notifyChange();
 }
 
 export function addTeacher(teacher: Omit<Teacher, 'id'>): Teacher {
@@ -287,13 +506,14 @@ export function addTeacher(teacher: Omit<Teacher, 'id'>): Teacher {
   if (current.some(t => t.code.trim().toUpperCase() === normalizedCode)) {
     throw new Error(`Kode Guru "${teacher.code}" sudah digunakan oleh guru lain.`);
   }
-  // Check homeroom validation
   if (teacher.role === 'Wali Kelas' && teacher.assignedClass) {
     const existingHomeroom = current.find(
       t => t.role === 'Wali Kelas' && t.assignedClass === teacher.assignedClass
     );
     if (existingHomeroom) {
-      throw new Error(`Kelas ${teacher.assignedClass} sudah memiliki Wali Kelas: ${existingHomeroom.name}. Satu kelas hanya boleh memiliki satu wali kelas.`);
+      throw new Error(
+        `Kelas ${teacher.assignedClass} sudah memiliki Wali Kelas: ${existingHomeroom.name}. Satu kelas hanya boleh memiliki satu wali kelas.`
+      );
     }
   }
 
@@ -302,16 +522,23 @@ export function addTeacher(teacher: Omit<Teacher, 'id'>): Teacher {
     code: teacher.code.trim(),
     id: 't-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6)
   };
-  saveTeachers([...current, newTeacher]);
+  memoryStore.teachers = [...current, newTeacher];
 
-  // Update class homeroom teacher reference if applicable
+  let updatedClasses: ClassItem[] | null = null;
   if (newTeacher.role === 'Wali Kelas' && newTeacher.assignedClass) {
-    const classes = getClasses();
-    const updated = classes.map(c =>
+    updatedClasses = getClasses().map(c =>
       c.name === newTeacher.assignedClass ? { ...c, homeroomTeacherId: newTeacher.id } : c
     );
-    saveClasses(updated);
+    memoryStore.classes = updatedClasses;
   }
+  notifyChange();
+
+  runSupabaseWrite('Tambah Guru', async client => {
+    await upsertTeacherDb(client, newTeacher);
+    if (updatedClasses) {
+      await upsertClassesDb(client, updatedClasses);
+    }
+  });
 
   addActivityLog('teacher', 'Guru Ditambahkan', `${newTeacher.name} (${newTeacher.code}) berhasil ditambahkan.`);
   return newTeacher;
@@ -340,11 +567,9 @@ export function updateTeacher(teacher: Teacher): void {
     ...teacher,
     code: teacher.code.trim()
   };
-  saveTeachers(current.map(t => (t.id === updatedTeacher.id ? updatedTeacher : t)));
+  memoryStore.teachers = current.map(t => (t.id === updatedTeacher.id ? updatedTeacher : t));
 
-  // Update classes table homeroom mapping
-  const classes = getClasses();
-  const updatedClasses = classes.map(c => {
+  const updatedClasses = getClasses().map(c => {
     if (updatedTeacher.role === 'Wali Kelas' && c.name === updatedTeacher.assignedClass) {
       return { ...c, homeroomTeacherId: updatedTeacher.id };
     }
@@ -353,7 +578,13 @@ export function updateTeacher(teacher: Teacher): void {
     }
     return c;
   });
-  saveClasses(updatedClasses);
+  memoryStore.classes = updatedClasses;
+  notifyChange();
+
+  runSupabaseWrite('Update Guru', async client => {
+    await upsertTeacherDb(client, updatedTeacher);
+    await upsertClassesDb(client, updatedClasses);
+  });
 
   addActivityLog('teacher', 'Data Guru Diperbarui', `Informasi ${updatedTeacher.name} telah diperbarui.`);
 }
@@ -361,24 +592,33 @@ export function updateTeacher(teacher: Teacher): void {
 export function deleteTeacher(teacherId: string): void {
   const current = getTeachers();
   const t = current.find(i => i.id === teacherId);
-  saveTeachers(current.filter(i => i.id !== teacherId));
+  memoryStore.teachers = current.filter(i => i.id !== teacherId);
 
-  // Remove from class homeroom mapping
-  const classes = getClasses();
-  saveClasses(classes.map(c => (c.homeroomTeacherId === teacherId ? { ...c, homeroomTeacherId: undefined } : c)));
+  const updatedClasses = getClasses().map(c =>
+    c.homeroomTeacherId === teacherId ? { ...c, homeroomTeacherId: undefined } : c
+  );
+  memoryStore.classes = updatedClasses;
+  notifyChange();
+
+  runSupabaseWrite('Hapus Guru', async client => {
+    await upsertClassesDb(client, updatedClasses);
+    await deleteTeacherDb(client, teacherId);
+  });
 
   if (t) {
     addActivityLog('teacher', 'Guru Dihapus', `${t.name} (${t.code}) telah dihapus dari sistem.`);
   }
 }
 
-// Students
+// ---------- Students ----------
+
 export function getStudents(): Student[] {
-  return getItem<Student[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
+  return memoryStore.students;
 }
 
 export function saveStudents(students: Student[]): void {
-  setItem(KEYS.STUDENTS, students);
+  memoryStore.students = students;
+  notifyChange();
 }
 
 export function addStudent(student: Omit<Student, 'id'>): Student {
@@ -390,8 +630,15 @@ export function addStudent(student: Omit<Student, 'id'>): Student {
     ...student,
     id: 's-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6)
   };
-  saveStudents([...current, newStudent]);
-  addActivityLog('student', 'Siswa Baru Ditambahkan', `${newStudent.name} (NIS: ${newStudent.nis}) kelas ${newStudent.className}.`);
+  memoryStore.students = [...current, newStudent];
+  notifyChange();
+
+  runSupabaseWrite('Tambah Siswa', client => upsertStudentDb(client, newStudent));
+  addActivityLog(
+    'student',
+    'Siswa Baru Ditambahkan',
+    `${newStudent.name} (NIS: ${newStudent.nis}) kelas ${newStudent.className}.`
+  );
   return newStudent;
 }
 
@@ -401,24 +648,35 @@ export function updateStudent(student: Student): void {
   if (duplicateNis) {
     throw new Error(`NIS "${student.nis}" sudah terdaftar untuk siswa lain: ${duplicateNis.name}.`);
   }
-  saveStudents(current.map(s => (s.id === student.id ? student : s)));
+  memoryStore.students = current.map(s => (s.id === student.id ? student : s));
+  notifyChange();
+
+  runSupabaseWrite('Update Siswa', client => upsertStudentDb(client, student));
   addActivityLog('student', 'Data Siswa Diperbarui', `Data siswa ${student.name} diperbarui.`);
 }
 
 export function deleteStudent(studentId: string): void {
   const current = getStudents();
   const student = current.find(s => s.id === studentId);
-  saveStudents(current.filter(s => s.id !== studentId));
+  memoryStore.students = current.filter(s => s.id !== studentId);
+  notifyChange();
+
+  runSupabaseWrite('Hapus Siswa', client => deleteStudentDb(client, studentId));
   if (student) {
     addActivityLog('student', 'Siswa Dihapus', `Data siswa ${student.name} (NIS: ${student.nis}) dihapus.`);
   }
 }
 
-// Bulk Class Promotion / Transfer
 export function promoteStudents(studentIds: string[], targetClassName: string): void {
   const current = getStudents();
-  const updated = current.map(s => (studentIds.includes(s.id) ? { ...s, className: targetClassName } : s));
-  saveStudents(updated);
+  memoryStore.students = current.map(s =>
+    studentIds.includes(s.id) ? { ...s, className: targetClassName } : s
+  );
+  notifyChange();
+
+  runSupabaseWrite('Kenaikan Kelas Siswa', client =>
+    bulkUpdateStudentsClassDb(client, studentIds, targetClassName)
+  );
   addActivityLog(
     'student',
     'Kenaikan / Pindah Kelas',
@@ -426,86 +684,104 @@ export function promoteStudents(studentIds: string[], targetClassName: string): 
   );
 }
 
-// Characters & Indicators
+// ---------- Characters & Indicators ----------
+
 export function getSubCharacters(): SubCharacter[] {
-  return getItem<SubCharacter[]>(KEYS.SUB_CHARACTERS, INITIAL_SUB_CHARACTERS);
+  return memoryStore.subCharacters;
 }
 
 export function saveSubCharacters(subs: SubCharacter[]): void {
-  setItem(KEYS.SUB_CHARACTERS, subs);
+  memoryStore.subCharacters = subs;
+  notifyChange();
 }
 
 export function addOrUpdateSubCharacter(sub: SubCharacter): void {
   const current = getSubCharacters();
   const index = current.findIndex(s => s.id === sub.id);
   if (index >= 0) {
-    current[index] = sub;
-    saveSubCharacters([...current]);
+    const next = [...current];
+    next[index] = sub;
+    memoryStore.subCharacters = next;
   } else {
-    saveSubCharacters([...current, sub]);
+    memoryStore.subCharacters = [...current, sub];
   }
+  notifyChange();
+
+  runSupabaseWrite('Simpan Sub Karakter', client => upsertSubCharacterDb(client, sub));
   addActivityLog('system', 'Sub Karakter Disimpan', `Sub karakter "${sub.name}" disimpan.`);
 }
 
 export function deleteSubCharacter(subId: string): void {
-  const current = getSubCharacters();
-  saveSubCharacters(current.filter(s => s.id !== subId));
-  // Also remove indicators under this sub-character
-  const indicators = getIndicators();
-  saveIndicators(indicators.filter(ind => ind.subCharacterId !== subId));
+  memoryStore.subCharacters = getSubCharacters().filter(s => s.id !== subId);
+  memoryStore.indicators = getIndicators().filter(ind => ind.subCharacterId !== subId);
+  notifyChange();
+
+  runSupabaseWrite('Hapus Sub Karakter', client => deleteSubCharacterDb(client, subId));
 }
 
 export function getIndicators(): CharacterIndicator[] {
-  const current = getItem<CharacterIndicator[]>(KEYS.INDICATORS, INITIAL_INDICATORS);
-  if (!Array.isArray(current)) return INITIAL_INDICATORS;
-  return current.map(ind => {
+  return memoryStore.indicators.map(ind => {
     const fallback = INITIAL_INDICATORS.find(init => init.id === ind.id);
     return {
       ...ind,
       level: ind.level || 1,
-      descriptionPrefixA: ind.descriptionPrefixA ?? fallback?.descriptionPrefixA ?? ind.defaultDescriptionPrefix ?? '',
-      descriptionPrefixB: ind.descriptionPrefixB ?? fallback?.descriptionPrefixB ?? ind.defaultDescriptionPrefix ?? '',
-      descriptionPrefixC: ind.descriptionPrefixC ?? fallback?.descriptionPrefixC ?? ind.defaultDescriptionPrefix ?? ''
+      descriptionPrefixA:
+        ind.descriptionPrefixA ?? fallback?.descriptionPrefixA ?? ind.defaultDescriptionPrefix ?? '',
+      descriptionPrefixB:
+        ind.descriptionPrefixB ?? fallback?.descriptionPrefixB ?? ind.defaultDescriptionPrefix ?? '',
+      descriptionPrefixC:
+        ind.descriptionPrefixC ?? fallback?.descriptionPrefixC ?? ind.defaultDescriptionPrefix ?? ''
     };
   });
 }
 
 export function saveIndicators(inds: CharacterIndicator[]): void {
-  setItem(KEYS.INDICATORS, inds);
+  memoryStore.indicators = inds;
+  notifyChange();
 }
 
 export function addOrUpdateIndicator(ind: CharacterIndicator): void {
   const current = getIndicators();
   const index = current.findIndex(i => i.id === ind.id);
   if (index >= 0) {
-    current[index] = ind;
-    saveIndicators([...current]);
+    const next = [...current];
+    next[index] = ind;
+    memoryStore.indicators = next;
   } else {
-    saveIndicators([...current, ind]);
+    memoryStore.indicators = [...current, ind];
   }
+  notifyChange();
+
+  runSupabaseWrite('Simpan Indikator Karakter', client => upsertIndicatorDb(client, ind));
   addActivityLog('system', 'Indikator Karakter Disimpan', `Indikator "${ind.name}" disimpan.`);
 }
 
 export function deleteIndicator(indicatorId: string): void {
-  const current = getIndicators();
-  saveIndicators(current.filter(i => i.id !== indicatorId));
+  memoryStore.indicators = getIndicators().filter(i => i.id !== indicatorId);
+  notifyChange();
+
+  runSupabaseWrite('Hapus Indikator', client => deleteIndicatorDb(client, indicatorId));
 }
 
 export function getGradeOptions(): GradeOption[] {
-  return getItem<GradeOption[]>(KEYS.GRADE_OPTIONS, INITIAL_GRADE_OPTIONS);
+  return memoryStore.gradeOptions;
 }
 
 export function saveGradeOptions(options: GradeOption[]): void {
-  setItem(KEYS.GRADE_OPTIONS, options);
+  memoryStore.gradeOptions = options;
+  notifyChange();
+  runSupabaseWrite('Simpan Opsi Predikat', client => upsertGradeOptionsDb(client, options));
 }
 
-// Assessments
+// ---------- Assessments ----------
+
 export function getAssessments(): AssessmentRecord[] {
-  return getItem<AssessmentRecord[]>(KEYS.ASSESSMENTS, INITIAL_ASSESSMENTS);
+  return memoryStore.assessments;
 }
 
 export function saveAssessments(records: AssessmentRecord[]): void {
-  setItem(KEYS.ASSESSMENTS, records);
+  memoryStore.assessments = records;
+  notifyChange();
 }
 
 export function getAssessmentForStudent(
@@ -513,8 +789,7 @@ export function getAssessmentForStudent(
   academicYear: string,
   semester: '1' | '2'
 ): AssessmentRecord | undefined {
-  const all = getAssessments();
-  return all.find(
+  return getAssessments().find(
     a => a.studentNis === studentNis && a.academicYear === academicYear && a.semester === semester
   );
 }
@@ -529,17 +804,21 @@ export function saveAssessmentRecord(record: AssessmentRecord): void {
   );
 
   const now = new Date().toISOString();
-  const updatedRecord = {
+  const updatedRecord: AssessmentRecord = {
     ...record,
     updatedAt: now
   };
 
   if (index >= 0) {
-    all[index] = updatedRecord;
-    saveAssessments([...all]);
+    const next = [...all];
+    next[index] = updatedRecord;
+    memoryStore.assessments = next;
   } else {
-    saveAssessments([...all, updatedRecord]);
+    memoryStore.assessments = [...all, updatedRecord];
   }
+  notifyChange();
+
+  runSupabaseWrite('Simpan Penilaian Karakter', client => upsertAssessmentDb(client, updatedRecord));
 
   const student = getStudents().find(s => s.nis === record.studentNis);
   const studentName = student ? student.name : record.studentNis;
@@ -551,11 +830,10 @@ export function saveAssessmentRecord(record: AssessmentRecord): void {
   );
 }
 
-// Users and Authentication State
+// ---------- Users and Authentication State ----------
+
 export function getUsers(): UserAccount[] {
-  const current = getItem<UserAccount[]>(KEYS.USERS, INITIAL_USERS);
-  if (!Array.isArray(current)) return INITIAL_USERS;
-  return current.map(u => {
+  return memoryStore.users.map(u => {
     if (u.id === 'u-admin' && u.username === 'admin') {
       return { ...u, username: 'webdevaj', password: u.password || '@w3bd3vAJ', name: 'Administrator' };
     }
@@ -567,20 +845,23 @@ export function getUsers(): UserAccount[] {
 }
 
 export function saveUsers(users: UserAccount[]): void {
-  setItem(KEYS.USERS, users);
+  memoryStore.users = users;
+  notifyChange();
+  runSupabaseWrite('Akun Pengguna', client => syncUsersDb(client, users));
 }
 
 export function getActiveUser(): UserAccount {
-  return getItem<UserAccount>(KEYS.ACTIVE_USER, INITIAL_USERS[1] || INITIAL_USERS[0]);
+  return memoryStore.activeUser;
 }
 
 export function setActiveUser(user: UserAccount): void {
-  setItem(KEYS.ACTIVE_USER, user);
+  memoryStore.activeUser = user;
+  notifyChange();
 }
 
 export function getAdminSession(): UserAccount | null {
   try {
-    const raw = localStorage.getItem(KEYS.ADMIN_SESSION);
+    const raw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(ADMIN_SESSION_KEY) : null;
     if (!raw) return null;
     const parsed = JSON.parse(raw) as UserAccount;
     return parsed && parsed.role === 'admin' ? parsed : null;
@@ -591,10 +872,12 @@ export function getAdminSession(): UserAccount | null {
 
 export function setAdminSession(user: UserAccount | null): void {
   try {
-    if (user) {
-      localStorage.setItem(KEYS.ADMIN_SESSION, JSON.stringify(user));
-    } else {
-      localStorage.removeItem(KEYS.ADMIN_SESSION);
+    if (typeof sessionStorage !== 'undefined') {
+      if (user) {
+        sessionStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(user));
+      } else {
+        sessionStorage.removeItem(ADMIN_SESSION_KEY);
+      }
     }
     notifyChange();
   } catch (e) {
@@ -602,9 +885,10 @@ export function setAdminSession(user: UserAccount | null): void {
   }
 }
 
-// Activity Logs
+// ---------- Activity Logs ----------
+
 export function getActivityLogs(): ActivityLog[] {
-  return getItem<ActivityLog[]>(KEYS.ACTIVITY_LOGS, INITIAL_ACTIVITY_LOGS);
+  return memoryStore.activityLogs;
 }
 
 export function addActivityLog(
@@ -623,70 +907,76 @@ export function addActivityLog(
     description,
     userName: userName || activeUser.name
   };
-  // Keep last 60 logs
-  const updated = [newLog, ...current].slice(0, 60);
-  setItem(KEYS.ACTIVITY_LOGS, updated);
+  memoryStore.activityLogs = [newLog, ...current].slice(0, 60);
+  notifyChange();
+
+  runSupabaseWrite('Log Aktivitas', client => insertActivityLogDb(client, newLog));
 }
 
-// Supabase Configuration
+// ---------- Supabase Configuration ----------
+
 export function getSupabaseConfig(): SupabaseConfig {
-  return getItem<SupabaseConfig>(KEYS.SUPABASE_CONFIG, {
-    url: '',
-    anonKey: '',
-    isConnected: false,
-    autoSync: false
-  });
+  const creds = resolveSupabaseCredentials(memoryStore.supabaseConfig);
+  if (creds.source === 'env') {
+    return {
+      url: creds.url,
+      anonKey: creds.anonKey,
+      isConnected: true,
+      autoSync: true
+    };
+  }
+  return memoryStore.supabaseConfig;
 }
 
 export function saveSupabaseConfig(config: SupabaseConfig): void {
-  setItem(KEYS.SUPABASE_CONFIG, config);
-  addActivityLog('system', 'Konfigurasi Supabase Diperbarui', `Pengaturan koneksi Supabase telah disimpan.`);
+  writeStoredSupabaseConfig(config);
+  if (config.url && config.anonKey && config.isConnected) {
+    activeSupabaseClient = createSupabaseClientInstance(config.url, config.anonKey);
+  } else {
+    activeSupabaseClient = null;
+  }
+  notifyChange();
 }
 
-// Reset / Clear Dummy
+// ---------- Reset / Clear Dummy / Export / Import ----------
+
 export function resetToDefaultData(): void {
-  localStorage.setItem(KEYS.SCHOOL_PROFILE, JSON.stringify(INITIAL_SCHOOL_PROFILE));
-  localStorage.setItem(KEYS.CLASSES, JSON.stringify(INITIAL_CLASSES));
-  localStorage.setItem(KEYS.TEACHERS, JSON.stringify(INITIAL_TEACHERS));
-  localStorage.setItem(KEYS.STUDENTS, JSON.stringify(INITIAL_STUDENTS));
-  localStorage.setItem(KEYS.SUB_CHARACTERS, JSON.stringify(INITIAL_SUB_CHARACTERS));
-  localStorage.setItem(KEYS.INDICATORS, JSON.stringify(INITIAL_INDICATORS));
-  localStorage.setItem(KEYS.GRADE_OPTIONS, JSON.stringify(INITIAL_GRADE_OPTIONS));
-  localStorage.setItem(KEYS.USERS, JSON.stringify(INITIAL_USERS));
-  localStorage.setItem(KEYS.ACTIVE_USER, JSON.stringify(INITIAL_USERS[0]));
-  localStorage.setItem(KEYS.ASSESSMENTS, JSON.stringify(INITIAL_ASSESSMENTS));
-  localStorage.setItem(KEYS.ACTIVITY_LOGS, JSON.stringify(INITIAL_ACTIVITY_LOGS));
+  memoryStore.schoolProfile = { ...INITIAL_SCHOOL_PROFILE };
+  memoryStore.classes = INITIAL_CLASSES.map(c => ({ ...c }));
+  memoryStore.teachers = INITIAL_TEACHERS.map(t => ({ ...t }));
+  memoryStore.students = INITIAL_STUDENTS.map(s => ({ ...s }));
+  memoryStore.subCharacters = INITIAL_SUB_CHARACTERS.map(sc => ({ ...sc }));
+  memoryStore.indicators = INITIAL_INDICATORS.map(i => ({ ...i }));
+  memoryStore.gradeOptions = INITIAL_GRADE_OPTIONS.map(g => ({ ...g }));
+  memoryStore.users = INITIAL_USERS.map(u => ({ ...u }));
+  memoryStore.assessments = INITIAL_ASSESSMENTS.map(a => ({ ...a }));
+  memoryStore.activityLogs = INITIAL_ACTIVITY_LOGS.map(l => ({ ...l }));
   notifyChange();
+
+  runSupabaseWrite('Reset Data Default', client => seedAllToSupabase(client, buildCurrentSnapshot()));
   addActivityLog('system', 'Data Direset', 'Semua data dikembalikan ke data default bawaan SD Islam Alam & Sains Al-Jannah.');
 }
 
 export function clearAllDummyData(): void {
-  // Clear dummy students, teachers, and assessments, keep structure, school profile & indicators
-  localStorage.setItem(KEYS.STUDENTS, JSON.stringify([]));
-  localStorage.setItem(KEYS.TEACHERS, JSON.stringify([]));
-  localStorage.setItem(KEYS.ASSESSMENTS, JSON.stringify([]));
-  // reset homeroom teachers in classes
-  const classes = getClasses().map(c => ({ ...c, homeroomTeacherId: undefined }));
-  localStorage.setItem(KEYS.CLASSES, JSON.stringify(classes));
+  memoryStore.students = [];
+  memoryStore.teachers = [];
+  memoryStore.assessments = [];
+  memoryStore.classes = getClasses().map(c => ({ ...c, homeroomTeacherId: undefined }));
   notifyChange();
-  addActivityLog('system', 'Data Contoh Dibersihkan', 'Semua data contoh guru, siswa, dan penilaian telah dibersihkan. Sistem siap untuk data riil sekolah.');
+
+  runSupabaseWrite('Bersihkan Data Contoh', client => clearDummyDataInSupabase(client));
+  addActivityLog(
+    'system',
+    'Data Contoh Dibersihkan',
+    'Semua data contoh guru, siswa, dan penilaian telah dibersihkan. Sistem siap untuk data riil sekolah.'
+  );
 }
 
-// Full Export and Import
 export function exportDatabaseToJson(): string {
   const data = {
     version: '1.0',
     exportedAt: new Date().toISOString(),
-    schoolProfile: getSchoolProfile(),
-    classes: getClasses(),
-    teachers: getTeachers(),
-    students: getStudents(),
-    subCharacters: getSubCharacters(),
-    indicators: getIndicators(),
-    gradeOptions: getGradeOptions(),
-    assessments: getAssessments(),
-    users: getUsers(),
-    activityLogs: getActivityLogs()
+    ...buildCurrentSnapshot()
   };
   return JSON.stringify(data, null, 2);
 }
@@ -697,17 +987,19 @@ export function importDatabaseFromJson(jsonString: string): boolean {
     if (!data.schoolProfile || !data.indicators) {
       throw new Error('Format berkas cadangan (backup) tidak valid.');
     }
-    if (data.schoolProfile) localStorage.setItem(KEYS.SCHOOL_PROFILE, JSON.stringify(data.schoolProfile));
-    if (data.classes) localStorage.setItem(KEYS.CLASSES, JSON.stringify(data.classes));
-    if (data.teachers) localStorage.setItem(KEYS.TEACHERS, JSON.stringify(data.teachers));
-    if (data.students) localStorage.setItem(KEYS.STUDENTS, JSON.stringify(data.students));
-    if (data.subCharacters) localStorage.setItem(KEYS.SUB_CHARACTERS, JSON.stringify(data.subCharacters));
-    if (data.indicators) localStorage.setItem(KEYS.INDICATORS, JSON.stringify(data.indicators));
-    if (data.gradeOptions) localStorage.setItem(KEYS.GRADE_OPTIONS, JSON.stringify(data.gradeOptions));
-    if (data.assessments) localStorage.setItem(KEYS.ASSESSMENTS, JSON.stringify(data.assessments));
-    if (data.users) localStorage.setItem(KEYS.USERS, JSON.stringify(data.users));
-    if (data.activityLogs) localStorage.setItem(KEYS.ACTIVITY_LOGS, JSON.stringify(data.activityLogs));
+    if (data.schoolProfile) memoryStore.schoolProfile = data.schoolProfile;
+    if (data.classes) memoryStore.classes = data.classes;
+    if (data.teachers) memoryStore.teachers = data.teachers;
+    if (data.students) memoryStore.students = data.students;
+    if (data.subCharacters) memoryStore.subCharacters = data.subCharacters;
+    if (data.indicators) memoryStore.indicators = data.indicators;
+    if (data.gradeOptions) memoryStore.gradeOptions = data.gradeOptions;
+    if (data.assessments) memoryStore.assessments = data.assessments;
+    if (data.users) memoryStore.users = data.users;
+    if (data.activityLogs) memoryStore.activityLogs = data.activityLogs;
     notifyChange();
+
+    runSupabaseWrite('Restore JSON ke Supabase', client => seedAllToSupabase(client, buildCurrentSnapshot()));
     addActivityLog('system', 'Restore Data Berhasil', 'Database berhasil dipulihkan dari berkas cadangan JSON.');
     return true;
   } catch (e) {

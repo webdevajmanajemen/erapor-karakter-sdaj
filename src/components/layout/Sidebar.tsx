@@ -224,12 +224,11 @@ export function Sidebar({
           )}
 
           <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between text-slate-300">
-              <span>Versi Aplikasi</span>
-              <span className="font-mono text-amber-300 font-bold">v2.4.0</span>
-            </div>
-            <p className="text-[10px] leading-tight text-slate-400 mt-1">
-              Islam • Alam • Sains • Al-Jannah
+            <p className="text-slate-200 font-semibold leading-tight">
+              Created by Mr. Wildan A W
+            </p>
+            <p className="text-[11px] font-mono text-amber-300 font-bold leading-tight">
+              Versi Aplikasi V.1
             </p>
           </div>
         </div>

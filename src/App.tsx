@@ -30,7 +30,7 @@ import {
 } from './types';
 
 function MainApp() {
-  const { success, info } = useToast();
+  const { success, info, error } = useToast();
 
   // Active Navigation Tab
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
@@ -59,6 +59,7 @@ function MainApp() {
   const [activeUser, setActiveUser] = useState<UserAccount>(storage.getActiveUser);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(storage.getActivityLogs);
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(storage.getSupabaseConfig);
+  const [syncStatus, setSyncStatus] = useState(storage.getSyncStatus);
 
   // Refresh all state from storage
   const reloadAllData = useCallback(() => {
@@ -75,17 +76,30 @@ function MainApp() {
     setAdminUser(storage.getAdminSession());
     setActivityLogs(storage.getActivityLogs());
     setSupabaseConfig(storage.getSupabaseConfig());
+    setSyncStatus(storage.getSyncStatus());
   }, []);
 
-  // Initialize and subscribe
+  // Initialize and subscribe + initial sync from Supabase
   useEffect(() => {
     storage.initializeStorageIfNeeded();
     reloadAllData();
+    storage.syncFromSupabaseOnStartup().then(res => {
+      reloadAllData();
+      if (res.error) {
+        error('Koneksi Supabase Bermasalah', res.error);
+      }
+    });
     const unsubscribe = storage.subscribeToDataChanges(() => {
       reloadAllData();
     });
-    return () => unsubscribe();
-  }, [reloadAllData]);
+    const unsubscribeErr = storage.subscribeToSyncErrors(msg => {
+      error('Sinkronisasi Supabase Gagal', msg);
+    });
+    return () => {
+      unsubscribe();
+      unsubscribeErr();
+    };
+  }, [reloadAllData, error]);
 
   // Handle Tab Navigation with Admin Guard
   const handleSelectTab = (tab: NavTab) => {
@@ -214,6 +228,8 @@ function MainApp() {
           schoolProfile={schoolProfile}
           isAdminLoggedIn={isAdminLoggedIn}
           adminUser={adminUser}
+          syncMode={syncStatus.mode}
+          isSyncing={syncStatus.isSyncing}
           onOpenAdminLogin={() => {
             setPendingAdminTab(null);
             setIsAdminLoginOpen(true);

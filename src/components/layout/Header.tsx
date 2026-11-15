@@ -15,6 +15,8 @@ interface HeaderProps {
   schoolProfile: SchoolProfile;
   isAdminLoggedIn: boolean;
   adminUser: UserAccount | null;
+  syncMode?: 'supabase' | 'memory';
+  isSyncing?: boolean;
   onOpenAdminLogin: () => void;
   onLogoutAdmin: () => void;
   onOpenMobileSidebar: () => void;
@@ -26,6 +28,8 @@ export function Header({
   schoolProfile,
   isAdminLoggedIn,
   adminUser,
+  syncMode = 'memory',
+  isSyncing = false,
   onOpenAdminLogin,
   onLogoutAdmin,
   onOpenMobileSidebar
@@ -73,11 +77,25 @@ export function Header({
 
         {/* Database indicator */}
         <div
-          title="Penyimpanan Lokal Aktif (Dukungan Ekspor/Impor & Siap Integrasi Supabase)"
-          className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 text-xs font-medium cursor-help"
+          title={
+            syncMode === 'supabase'
+              ? 'CRUD terhubung langsung ke database PostgreSQL Supabase'
+              : 'Belum terhubung ke Supabase (konfigurasi URL & Anon Key di menu Pengaturan)'
+          }
+          className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium cursor-help ${
+            syncMode === 'supabase'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-amber-50 border-amber-200 text-amber-800'
+          }`}
         >
-          <Database className="w-3.5 h-3.5 text-emerald-600" />
-          <span className="text-[11px] font-semibold text-slate-700">Database Ready</span>
+          <Database className={`w-3.5 h-3.5 ${syncMode === 'supabase' ? 'text-emerald-600' : 'text-amber-600'}`} />
+          <span className="text-[11px] font-semibold">
+            {isSyncing
+              ? 'Menyinkronkan...'
+              : syncMode === 'supabase'
+              ? 'Supabase Terhubung'
+              : 'Belum Konek Supabase'}
+          </span>
         </div>
 
         {/* Administrator Login / Active Status */}

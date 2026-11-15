@@ -6,12 +6,8 @@ import {
   Download,
   ExternalLink,
   Code2,
-  FileText,
-  ListOrdered,
   Sparkles,
   BookOpen,
-  Key,
-  ShieldCheck,
   Server
 } from 'lucide-react';
 import { Modal } from '../ui/Modal';
@@ -23,7 +19,8 @@ import {
   Student,
   SubCharacter,
   CharacterIndicator,
-  GradeOption
+  GradeOption,
+  UserAccount
 } from '../../types';
 
 interface SupabaseSqlEditorModalProps {
@@ -36,6 +33,7 @@ interface SupabaseSqlEditorModalProps {
   subCharacters: SubCharacter[];
   indicators: CharacterIndicator[];
   gradeOptions: GradeOption[];
+  users?: UserAccount[];
 }
 
 export function SupabaseSqlEditorModal({
@@ -47,18 +45,18 @@ export function SupabaseSqlEditorModal({
   students,
   subCharacters,
   indicators,
-  gradeOptions
+  gradeOptions,
+  users = []
 }: SupabaseSqlEditorModalProps) {
-  const { success, info } = useToast();
+  const { success } = useToast();
   const [activeTab, setActiveTab] = useState<'ddl' | 'seed' | 'guide'>('ddl');
   const [copied, setCopied] = useState(false);
 
   // Generate DDL Schema Script
   const ddlSqlScript = useMemo(() => {
     return `-- ==============================================================================
--- SISTEM RAPOR KARAKTER SD ISLAM ALAM & SAINS AL-JANNAH
+-- E-RAPOR KARAKTER SD ISLAM ALAM & SAINS AL-JANNAH
 -- SKEMA STRUKTUR DATABASE LENGKAP UNTUK SUPABASE (POSTGRESQL)
--- Fitur: 3 Pilar Karakter (Islam, Alam, Sains) dengan 1 Indikator per Sub Karakter
 -- ==============================================================================
 
 -- 1. EKSTENSI UUID
@@ -66,7 +64,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 2. TABEL PROFIL SEKOLAH
 CREATE TABLE IF NOT EXISTS public.school_profile (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id TEXT PRIMARY KEY DEFAULT 'default',
     name TEXT NOT NULL DEFAULT 'SD ISLAM ALAM & SAINS AL-JANNAH',
     npsn TEXT NOT NULL DEFAULT '20228891',
     phase TEXT DEFAULT 'Fase A, B, dan C',
@@ -97,10 +95,10 @@ CREATE TABLE IF NOT EXISTS public.teachers (
     name TEXT NOT NULL,
     gender TEXT CHECK (gender IN ('L', 'P')) NOT NULL,
     role TEXT NOT NULL DEFAULT 'Guru Kelas',
-    assigned_class TEXT,
-    teaching_class TEXT,
-    phone TEXT,
-    email TEXT,
+    assigned_class TEXT DEFAULT '',
+    teaching_class TEXT DEFAULT '',
+    phone TEXT DEFAULT '',
+    email TEXT DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -118,14 +116,16 @@ CREATE TABLE IF NOT EXISTS public.classes (
 CREATE TABLE IF NOT EXISTS public.students (
     id TEXT PRIMARY KEY,
     nis TEXT UNIQUE NOT NULL,
+    nisn TEXT DEFAULT '',
     name TEXT NOT NULL,
     gender TEXT CHECK (gender IN ('L', 'P')) NOT NULL,
     status TEXT DEFAULT 'Reguler' CHECK (status IN ('Reguler', 'Inklusi')),
     class_name TEXT NOT NULL,
     parent_name TEXT NOT NULL,
-    notes TEXT,
+    notes TEXT DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS nisn TEXT DEFAULT '';
 
 -- 6. TABEL SUB KARAKTER (ISLAM, ALAM, SAINS)
 CREATE TABLE IF NOT EXISTS public.sub_characters (
@@ -135,15 +135,23 @@ CREATE TABLE IF NOT EXISTS public.sub_characters (
     "order" INTEGER DEFAULT 1 NOT NULL
 );
 
--- 7. TABEL INDIKATOR KARAKTER (1 INDIKATOR PER SUB KARAKTER)
+-- 7. TABEL INDIKATOR KARAKTER (PER LEVEL 1-6 + AWAL DESKRIPSI A/B/C)
 CREATE TABLE IF NOT EXISTS public.character_indicators (
     id TEXT PRIMARY KEY,
     sub_character_id TEXT NOT NULL REFERENCES public.sub_characters(id) ON DELETE CASCADE,
     category_id TEXT NOT NULL CHECK (category_id IN ('ISLAM', 'ALAM', 'SAINS')),
+    level INTEGER NOT NULL DEFAULT 1 CHECK (level BETWEEN 1 AND 6),
     name TEXT NOT NULL,
-    default_description_prefix TEXT,
+    default_description_prefix TEXT DEFAULT '',
+    description_prefix_a TEXT DEFAULT '',
+    description_prefix_b TEXT DEFAULT '',
+    description_prefix_c TEXT DEFAULT '',
     "order" INTEGER DEFAULT 1 NOT NULL
 );
+ALTER TABLE public.character_indicators ADD COLUMN IF NOT EXISTS level INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE public.character_indicators ADD COLUMN IF NOT EXISTS description_prefix_a TEXT DEFAULT '';
+ALTER TABLE public.character_indicators ADD COLUMN IF NOT EXISTS description_prefix_b TEXT DEFAULT '';
+ALTER TABLE public.character_indicators ADD COLUMN IF NOT EXISTS description_prefix_c TEXT DEFAULT '';
 
 -- 8. TABEL OPSI NILAI & PREDIKAT
 CREATE TABLE IF NOT EXISTS public.grade_options (
@@ -155,36 +163,48 @@ CREATE TABLE IF NOT EXISTS public.grade_options (
 -- 9. TABEL PENILAIAN PERKEMBANGAN KARAKTER (ASSESSMENTS)
 CREATE TABLE IF NOT EXISTS public.assessments (
     id TEXT PRIMARY KEY,
-    student_nis TEXT NOT NULL REFERENCES public.students(nis) ON DELETE CASCADE,
+    student_id TEXT DEFAULT '',
+    student_nis TEXT NOT NULL,
     academic_year TEXT NOT NULL,
     semester TEXT NOT NULL,
     class_name TEXT NOT NULL,
     status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'final')),
     items JSONB DEFAULT '{}'::jsonb NOT NULL,
-    general_notes TEXT,
+    general_notes TEXT DEFAULT '',
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_by TEXT,
+    updated_by TEXT DEFAULT '',
     CONSTRAINT unique_student_semester_assessment UNIQUE (student_nis, academic_year, semester)
 );
+ALTER TABLE public.assessments ADD COLUMN IF NOT EXISTS student_id TEXT DEFAULT '';
 
--- 10. TABEL LOG AKTIVITAS SISTEM
+-- 10. TABEL AKUN PENGGUNA & ADMINISTRATOR
+CREATE TABLE IF NOT EXISTS public.app_users (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT DEFAULT '',
+    name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'teacher' CHECK (role IN ('admin', 'teacher')),
+    teacher_id TEXT
+);
+
+-- 11. TABEL LOG AKTIVITAS SISTEM
 CREATE TABLE IF NOT EXISTS public.activity_logs (
     id TEXT PRIMARY KEY,
     type TEXT NOT NULL,
     title TEXT NOT NULL,
     description TEXT NOT NULL,
     timestamp TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-    user_name TEXT
+    user_name TEXT DEFAULT ''
 );
 
--- 11. INDEKS OPTIMASI PENCARIAN & QUERY
+-- 12. INDEKS OPTIMASI PENCARIAN & QUERY
 CREATE INDEX IF NOT EXISTS idx_teachers_role ON public.teachers(role);
 CREATE INDEX IF NOT EXISTS idx_students_class ON public.students(class_name);
 CREATE INDEX IF NOT EXISTS idx_assessments_lookup ON public.assessments(student_nis, academic_year, semester);
 CREATE INDEX IF NOT EXISTS idx_assessments_class ON public.assessments(class_name);
-CREATE INDEX IF NOT EXISTS idx_indicators_category ON public.character_indicators(category_id);
+CREATE INDEX IF NOT EXISTS idx_indicators_category_level ON public.character_indicators(category_id, level);
 
--- 12. KEBIJAKAN ROW LEVEL SECURITY (RLS)
+-- 13. KEBIJAKAN ROW LEVEL SECURITY (RLS)
 ALTER TABLE public.school_profile ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.teachers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.classes ENABLE ROW LEVEL SECURITY;
@@ -193,9 +213,10 @@ ALTER TABLE public.sub_characters ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.character_indicators ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.grade_options ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.assessments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 
--- 13. BUAT POLICY AKSES LENGKAP UNTUK CLIENT APLIKASI RAPOR (ANON & AUTH)
+-- 14. BUAT POLICY AKSES CRUD LENGKAP UNTUK APLIKASI (ANON & AUTHENTICATED)
 DO $$
 BEGIN
     DROP POLICY IF EXISTS "Allow All For Anon and Authenticated" ON public.school_profile;
@@ -222,6 +243,9 @@ BEGIN
     DROP POLICY IF EXISTS "Allow All For Anon and Authenticated" ON public.assessments;
     CREATE POLICY "Allow All For Anon and Authenticated" ON public.assessments FOR ALL USING (true) WITH CHECK (true);
 
+    DROP POLICY IF EXISTS "Allow All For Anon and Authenticated" ON public.app_users;
+    CREATE POLICY "Allow All For Anon and Authenticated" ON public.app_users FOR ALL USING (true) WITH CHECK (true);
+
     DROP POLICY IF EXISTS "Allow All For Anon and Authenticated" ON public.activity_logs;
     CREATE POLICY "Allow All For Anon and Authenticated" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
 END $$;
@@ -236,16 +260,17 @@ END $$;
     };
 
     let sql = `-- ==============================================================================
--- SISTEM RAPOR KARAKTER SD ISLAM ALAM & SAINS AL-JANNAH
--- SKRIP DATA AWAL (SEED DATA INSERT)
+-- E-RAPOR KARAKTER SD ISLAM ALAM & SAINS AL-JANNAH
+-- SKRIP DATA AWAL (SEED DATA INSERT / UPSERT)
 -- ==============================================================================
 
 -- 1. DATA AWAL PROFIL SEKOLAH
 INSERT INTO public.school_profile (
-    name, npsn, phase, level, address, village, district, city, province,
+    id, name, npsn, phase, level, address, village, district, city, province,
     phone, email, website, logo_url, headmaster_name, headmaster_nip,
     active_academic_year, active_semester, titi_mangsa_sem1, titi_mangsa_sem2
 ) VALUES (
+    'default',
     ${escapeSql(schoolProfile.name)},
     ${escapeSql(schoolProfile.npsn)},
     ${escapeSql(schoolProfile.phase)},
@@ -265,7 +290,7 @@ INSERT INTO public.school_profile (
     ${escapeSql(schoolProfile.activeSemester)},
     ${escapeSql(JSON.stringify(schoolProfile.titiMangsaSemester1))}::jsonb,
     ${escapeSql(JSON.stringify(schoolProfile.titiMangsaSemester2))}::jsonb
-) ON CONFLICT DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, active_academic_year = EXCLUDED.active_academic_year;
 
 -- 2. DATA OPSI PREDIKAT NILAI
 INSERT INTO public.grade_options (code, label, description) VALUES
@@ -282,15 +307,15 @@ INSERT INTO public.sub_characters (id, category_id, name, "order") VALUES
       .join(',\n');
     sql += `\nON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, "order" = EXCLUDED."order";\n\n`;
 
-    // 4. Indicators
-    sql += `-- 4. DATA INDIKATOR KARAKTER (1 PER SUB KARAKTER)\nINSERT INTO public.character_indicators (id, sub_character_id, category_id, name, default_description_prefix, "order") VALUES\n`;
+    // 4. Indicators (with level and descriptionPrefixA/B/C)
+    sql += `-- 4. DATA INDIKATOR KARAKTER (LEVEL & AWAL DESKRIPSI A/B/C)\nINSERT INTO public.character_indicators (id, sub_character_id, category_id, level, name, default_description_prefix, description_prefix_a, description_prefix_b, description_prefix_c, "order") VALUES\n`;
     sql += indicators
       .map(
         i =>
-          `    (${escapeSql(i.id)}, ${escapeSql(i.subCharacterId)}, ${escapeSql(i.categoryId)}, ${escapeSql(i.name)}, ${escapeSql(i.defaultDescriptionPrefix)}, ${i.order})`
+          `    (${escapeSql(i.id)}, ${escapeSql(i.subCharacterId)}, ${escapeSql(i.categoryId)}, ${i.level || 1}, ${escapeSql(i.name)}, ${escapeSql(i.defaultDescriptionPrefix)}, ${escapeSql(i.descriptionPrefixA || i.defaultDescriptionPrefix)}, ${escapeSql(i.descriptionPrefixB || i.defaultDescriptionPrefix)}, ${escapeSql(i.descriptionPrefixC || i.defaultDescriptionPrefix)}, ${i.order})`
       )
       .join(',\n');
-    sql += `\nON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, default_description_prefix = EXCLUDED.default_description_prefix;\n\n`;
+    sql += `\nON CONFLICT (id) DO UPDATE SET level = EXCLUDED.level, name = EXCLUDED.name, description_prefix_a = EXCLUDED.description_prefix_a, description_prefix_b = EXCLUDED.description_prefix_b, description_prefix_c = EXCLUDED.description_prefix_c;\n\n`;
 
     // 5. Teachers
     if (teachers.length > 0) {
@@ -310,7 +335,7 @@ INSERT INTO public.sub_characters (id, category_id, name, "order") VALUES
       sql += classes
         .map(
           c =>
-            `    (${escapeSql(c.id)}, ${escapeSql(c.name)}, ${c.level}, ${escapeSql(c.phase)}, ${escapeSql(c.homeroomTeacherId)})`
+            `    (${escapeSql(c.id)}, ${escapeSql(c.name)}, ${c.level}, ${escapeSql(c.phase)}, ${c.homeroomTeacherId ? escapeSql(c.homeroomTeacherId) : 'NULL'})`
         )
         .join(',\n');
       sql += `\nON CONFLICT (name) DO UPDATE SET homeroom_teacher_id = EXCLUDED.homeroom_teacher_id;\n\n`;
@@ -318,18 +343,30 @@ INSERT INTO public.sub_characters (id, category_id, name, "order") VALUES
 
     // 7. Students
     if (students.length > 0) {
-      sql += `-- 7. DATA SISWA\nINSERT INTO public.students (id, nis, name, gender, status, class_name, parent_name, notes) VALUES\n`;
+      sql += `-- 7. DATA SISWA\nINSERT INTO public.students (id, nis, nisn, name, gender, status, class_name, parent_name, notes) VALUES\n`;
       sql += students
         .map(
           s =>
-            `    (${escapeSql(s.id)}, ${escapeSql(s.nis)}, ${escapeSql(s.name)}, ${escapeSql(s.gender)}, ${escapeSql(s.status)}, ${escapeSql(s.className)}, ${escapeSql(s.parentName)}, ${escapeSql(s.notes)})`
+            `    (${escapeSql(s.id)}, ${escapeSql(s.nis)}, ${escapeSql(s.nisn)}, ${escapeSql(s.name)}, ${escapeSql(s.gender)}, ${escapeSql(s.status)}, ${escapeSql(s.className)}, ${escapeSql(s.parentName)}, ${escapeSql(s.notes)})`
         )
         .join(',\n');
-      sql += `\nON CONFLICT (nis) DO UPDATE SET name = EXCLUDED.name, class_name = EXCLUDED.class_name, parent_name = EXCLUDED.parent_name;\n\n`;
+      sql += `\nON CONFLICT (nis) DO UPDATE SET nisn = EXCLUDED.nisn, name = EXCLUDED.name, class_name = EXCLUDED.class_name, parent_name = EXCLUDED.parent_name;\n\n`;
+    }
+
+    // 8. Users
+    if (users.length > 0) {
+      sql += `-- 8. DATA AKUN PENGGUNA & ADMINISTRATOR\nINSERT INTO public.app_users (id, username, password, name, role, teacher_id) VALUES\n`;
+      sql += users
+        .map(
+          u =>
+            `    (${escapeSql(u.id)}, ${escapeSql(u.username)}, ${escapeSql(u.password)}, ${escapeSql(u.name)}, ${escapeSql(u.role)}, ${u.teacherId ? escapeSql(u.teacherId) : 'NULL'})`
+        )
+        .join(',\n');
+      sql += `\nON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, password = EXCLUDED.password, name = EXCLUDED.name, role = EXCLUDED.role;\n\n`;
     }
 
     return sql;
-  }, [schoolProfile, teachers, classes, students, subCharacters, indicators, gradeOptions]);
+  }, [schoolProfile, teachers, classes, students, subCharacters, indicators, users]);
 
   const activeContent = activeTab === 'ddl' ? ddlSqlScript : seedSqlScript;
 
@@ -437,21 +474,20 @@ INSERT INTO public.sub_characters (id, category_id, name, "order") VALUES
             <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-amber-500/10 border border-emerald-200/70">
               <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2 mb-1">
                 <Sparkles className="w-5 h-5 text-amber-500" />
-                Langkah Cepat Integrasi SD Islam Alam & Sains Al-Jannah ke Supabase
+                Langkah Menghubungkan E-Rapor Karakter ke Database Supabase (CRUD Real-Time)
               </h3>
               <p className="text-xs text-slate-600">
-                Ikuti 5 langkah sederhana berikut untuk menghubungkan basis data PostgreSQL di Supabase ke aplikasi ini.
+                Aplikasi kini melakukan CRUD langsung ke database PostgreSQL Supabase tanpa menyimpan data ke localStorage browser.
               </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Step 1 */}
               <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-2">
                 <div className="flex items-center gap-2.5">
                   <span className="w-7 h-7 rounded-full bg-blue-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
                     1
                   </span>
-                  <h4 className="font-bold text-slate-900 text-sm">Buat Proyek Baru di Supabase</h4>
+                  <h4 className="font-bold text-slate-900 text-sm">Buat Project Baru di Supabase</h4>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
                   Buka{' '}
@@ -463,88 +499,57 @@ INSERT INTO public.sub_characters (id, category_id, name, "order") VALUES
                   >
                     supabase.com/dashboard <ExternalLink className="w-3 h-3" />
                   </a>
-                  , login dengan akun GitHub atau Email, lalu klik tombol <strong>New project</strong>. Beri nama (misal: <em>sd-aljannah-rapor</em>) dan pilih region terdekat seperti <strong>Singapore</strong>.
+                  , buat project baru (misal: <em>erapor-aljannah</em>), pilih region <strong>Singapore</strong>, dan tunggu hingga database aktif.
                 </p>
               </div>
 
-              {/* Step 2 */}
               <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-2">
                 <div className="flex items-center gap-2.5">
                   <span className="w-7 h-7 rounded-full bg-blue-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
                     2
                   </span>
-                  <h4 className="font-bold text-slate-900 text-sm">Buka Menu SQL Editor di Supabase</h4>
+                  <h4 className="font-bold text-slate-900 text-sm">Jalankan Skema DDL di SQL Editor</h4>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Setelah project siap, klik menu <strong>SQL Editor</strong> di bilah navigasi kiri Supabase (ikon terminal <code className="bg-slate-100 px-1 py-0.5 rounded text-[11px]">&gt;_</code>). Klik <strong>New query</strong>.
+                  Buka menu <strong>SQL Editor &rarr; New query</strong> di Supabase. Salin skrip dari tab <strong>1. Skema DDL (Tabel &amp; RLS)</strong>, tempel lalu klik <strong>Run</strong> untuk membuat 10 tabel dan kebijakan RLS.
                 </p>
               </div>
 
-              {/* Step 3 */}
               <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-2">
                 <div className="flex items-center gap-2.5">
                   <span className="w-7 h-7 rounded-full bg-emerald-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
                     3
                   </span>
-                  <h4 className="font-bold text-slate-900 text-sm">Tempel Skrip Skema DDL & Eksekusi</h4>
+                  <h4 className="font-bold text-slate-900 text-sm">Isi Data Awal (Opsional / Otomatis)</h4>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Kembali ke modal ini, klik tab <strong>1. Skema DDL (Tabel & RLS)</strong> di atas, klik tombol <strong>Salin Skrip SQL</strong>. Tempelkan seluruh query ke SQL Editor Supabase, lalu klik tombol hijau <strong>Run</strong> (atau tekan <code>Ctrl + Enter</code>).
+                  Anda dapat menjalankan query pada tab <strong>2. Data Awal (Seed INSERT)</strong> di SQL Editor, atau langsung menghubungkan aplikasi — jika database masih kosong, aplikasi akan otomatis mengirim data awal saat terhubung.
                 </p>
               </div>
 
-              {/* Step 4 */}
               <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-2">
                 <div className="flex items-center gap-2.5">
-                  <span className="w-7 h-7 rounded-full bg-emerald-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
+                  <span className="w-7 h-7 rounded-full bg-amber-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
                     4
                   </span>
-                  <h4 className="font-bold text-slate-900 text-sm">Isi Data Awal (Seed Data)</h4>
+                  <h4 className="font-bold text-slate-900 text-sm">Salin Project URL &amp; Anon Key</h4>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Buka tab <strong>2. Data Awal (Seed INSERT)</strong>, salin skripnya, buat query baru di Supabase dan klik <strong>Run</strong>. Data master sekolah, rombel 1-6, 9 indikator karakter resmi, dan data siswa akan langsung terisi otomatis!
-                </p>
-              </div>
-
-              {/* Step 5 */}
-              <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-2 md:col-span-2">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-7 h-7 rounded-full bg-amber-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
-                    5
-                  </span>
-                  <h4 className="font-bold text-slate-900 text-sm">Ambil Project URL & Anon Key, Lalu Simpan</h4>
-                </div>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Di dashboard Supabase, buka menu <strong>Project Settings</strong> (ikon gerigi di kiri bawah) &gt; <strong>API</strong>. Salin nilai:
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono pt-1">
-                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
-                    <span className="text-slate-500 font-bold block mb-0.5">Project URL</span>
-                    <span className="text-blue-700">https://[your-project-ref].supabase.co</span>
-                  </div>
-                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
-                    <span className="text-slate-500 font-bold block mb-0.5">Project API Keys (anon public)</span>
-                    <span className="text-emerald-700">eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</span>
-                  </div>
-                </div>
-                <p className="text-xs text-slate-600 pt-1">
-                  Masukkan kedua nilai tersebut ke form <strong>Integrasi Database SUPABASE</strong> di halaman Pengaturan aplikasi ini, lalu klik <strong>Simpan Kredensial Supabase</strong>.
+                  Masuk ke <strong>Project Settings &rarr; API</strong> (atau Data API &amp; API Keys) di Supabase, lalu salin <strong>Project URL</strong> dan <strong>anon public key</strong> ke form Pengaturan aplikasi (atau set <code className="bg-slate-100 px-1 rounded">VITE_SUPABASE_URL</code> dan <code className="bg-slate-100 px-1 rounded">VITE_SUPABASE_ANON_KEY</code> di file <code className="bg-slate-100 px-1 rounded">.env</code>).
                 </p>
               </div>
             </div>
           </div>
         ) : (
           <div className="flex-1 flex flex-col min-h-0">
-            {/* Header Description of Query */}
             <div className="flex items-center justify-between px-4 py-2 bg-slate-900 text-slate-400 text-xs rounded-t-xl font-mono border-b border-slate-800">
               <span className="flex items-center gap-2 text-slate-200 font-semibold">
                 <Server className="w-3.5 h-3.5 text-emerald-400" />
                 {activeTab === 'ddl' ? 'sd_aljannah_supabase_schema.sql (DDL)' : 'sd_aljannah_seed_data.sql (DML)'}
               </span>
-              <span>{activeTab === 'ddl' ? '9 Tabel + Indeks + 9 RLS Policies' : 'Data Master & 9 Indikator Karakter'}</span>
+              <span>{activeTab === 'ddl' ? '10 Tabel + Indeks + 10 RLS Policies' : 'Data Master, Indikator A/B/C & Akun'}</span>
             </div>
 
-            {/* SQL Code View */}
             <div className="flex-1 bg-slate-950 p-4 rounded-b-xl overflow-auto border border-slate-800 font-mono text-xs leading-relaxed text-emerald-300 select-all">
               <pre className="whitespace-pre">{activeContent}</pre>
             </div>
