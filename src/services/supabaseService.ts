@@ -522,7 +522,11 @@ export async function seedAllToSupabase(
   }
 
   if (snapshot.assessments.length > 0) {
-    const r = await client.from('assessments').upsert(snapshot.assessments.map(mapAssessmentToRow), { onConflict: 'id' });
+    const r = await client
+      .from('assessments')
+      .upsert(snapshot.assessments.map(mapAssessmentToRow), {
+        onConflict: 'student_nis,academic_year,semester'
+      });
     if (r.error) throw new Error(`assessments: ${r.error.message}`);
   }
 

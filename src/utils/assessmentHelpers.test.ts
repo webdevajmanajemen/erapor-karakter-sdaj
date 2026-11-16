@@ -63,6 +63,7 @@ describe('assessmentHelpers - Awal Deskripsi A/B/C & Akses Administrator', () =>
     assert.equal(isAdminOnlyTab('classes'), true);
     assert.equal(isAdminOnlyTab('students'), true);
     assert.equal(isAdminOnlyTab('school-profile'), true);
+    assert.equal(isAdminOnlyTab('backup'), true);
     assert.equal(isAdminOnlyTab('settings'), true);
     assert.equal(isAdminOnlyTab('assessments'), false);
     assert.equal(isAdminOnlyTab('reports'), false);
@@ -71,11 +72,13 @@ describe('assessmentHelpers - Awal Deskripsi A/B/C & Akses Administrator', () =>
     assert.equal(canAccessTab('classes', false), false);
     assert.equal(canAccessTab('students', false), false);
     assert.equal(canAccessTab('school-profile', false), false);
+    assert.equal(canAccessTab('backup', false), false);
     assert.equal(canAccessTab('settings', false), false);
     assert.equal(canAccessTab('assessments', false), true);
 
     assert.equal(canAccessTab('teachers', true), true);
     assert.equal(canAccessTab('classes', true), true);
+    assert.equal(canAccessTab('backup', true), true);
     assert.equal(canAccessTab('settings', true), true);
   });
 

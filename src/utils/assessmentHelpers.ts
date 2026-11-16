@@ -5,6 +5,7 @@ export const ADMIN_ONLY_TABS = [
   'teachers',
   'classes',
   'students',
+  'backup',
   'settings'
 ] as const;
 

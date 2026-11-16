@@ -50,6 +50,14 @@ import {
   clearDummyDataInSupabase,
   SupabaseDatabaseSnapshot
 } from './supabaseService';
+import {
+  BackupSemesterFilter,
+  RestoreMode,
+  createBackupPayload,
+  parseAndValidateBackupJson,
+  mergeAssessmentsByKey,
+  mergeRecordsById
+} from '../utils/backupHelpers';
 
 // Only connection metadata & admin session key are stored in browser storage;
 // all application domain data lives in memory + Supabase PostgreSQL (no localStorage data tables).
@@ -975,36 +983,96 @@ export function clearAllDummyData(): void {
   );
 }
 
-export function exportDatabaseToJson(): string {
-  const data = {
-    version: '1.0',
-    exportedAt: new Date().toISOString(),
-    ...buildCurrentSnapshot()
-  };
-  return JSON.stringify(data, null, 2);
+export function exportDatabaseByYearToJson(
+  academicYear: string = 'ALL',
+  semester: BackupSemesterFilter = 'ALL'
+): string {
+  const payload = createBackupPayload(buildCurrentSnapshot(), {
+    academicYear,
+    semester
+  });
+  return JSON.stringify(payload, null, 2);
 }
 
-export function importDatabaseFromJson(jsonString: string): boolean {
+export function exportDatabaseToJson(): string {
+  return exportDatabaseByYearToJson('ALL', 'ALL');
+}
+
+export async function importDatabaseFromJson(
+  jsonString: string,
+  mode: RestoreMode = 'replace'
+): Promise<{ syncedToSupabase: boolean; scopeLabel: string; restoredAssessments: number }> {
   try {
-    const data = JSON.parse(jsonString);
-    if (!data.schoolProfile || !data.indicators) {
-      throw new Error('Format berkas cadangan (backup) tidak valid.');
+    const preview = parseAndValidateBackupJson(jsonString);
+    const data = preview.payload;
+
+    if (mode === 'merge') {
+      memoryStore.schoolProfile = data.schoolProfile || memoryStore.schoolProfile;
+      if (data.classes.length > 0) {
+        memoryStore.classes = mergeRecordsById(memoryStore.classes, data.classes);
+      }
+      if (data.teachers.length > 0) {
+        memoryStore.teachers = mergeRecordsById(memoryStore.teachers, data.teachers);
+      }
+      if (data.students.length > 0) {
+        memoryStore.students = mergeRecordsById(memoryStore.students, data.students);
+      }
+      if (data.subCharacters.length > 0) {
+        memoryStore.subCharacters = mergeRecordsById(memoryStore.subCharacters, data.subCharacters);
+      }
+      if (data.indicators.length > 0) {
+        memoryStore.indicators = mergeRecordsById(memoryStore.indicators, data.indicators);
+      }
+      if (data.gradeOptions.length > 0) {
+        const gradeMap = new Map(memoryStore.gradeOptions.map(g => [g.code, g]));
+        data.gradeOptions.forEach(g => gradeMap.set(g.code, g));
+        memoryStore.gradeOptions = Array.from(gradeMap.values());
+      }
+      memoryStore.assessments = mergeAssessmentsByKey(memoryStore.assessments, data.assessments);
+      if (data.users.length > 0) {
+        memoryStore.users = mergeRecordsById(memoryStore.users, data.users);
+      }
+    } else {
+      if (data.schoolProfile) memoryStore.schoolProfile = data.schoolProfile;
+      if (data.classes) memoryStore.classes = data.classes;
+      if (data.teachers) memoryStore.teachers = data.teachers;
+      if (data.students) memoryStore.students = data.students;
+      if (data.subCharacters) memoryStore.subCharacters = data.subCharacters;
+      if (data.indicators) memoryStore.indicators = data.indicators;
+      if (data.gradeOptions) memoryStore.gradeOptions = data.gradeOptions;
+      if (data.assessments) memoryStore.assessments = data.assessments;
+      if (data.users && data.users.length > 0) memoryStore.users = data.users;
+      if (data.activityLogs) memoryStore.activityLogs = data.activityLogs;
     }
-    if (data.schoolProfile) memoryStore.schoolProfile = data.schoolProfile;
-    if (data.classes) memoryStore.classes = data.classes;
-    if (data.teachers) memoryStore.teachers = data.teachers;
-    if (data.students) memoryStore.students = data.students;
-    if (data.subCharacters) memoryStore.subCharacters = data.subCharacters;
-    if (data.indicators) memoryStore.indicators = data.indicators;
-    if (data.gradeOptions) memoryStore.gradeOptions = data.gradeOptions;
-    if (data.assessments) memoryStore.assessments = data.assessments;
-    if (data.users) memoryStore.users = data.users;
-    if (data.activityLogs) memoryStore.activityLogs = data.activityLogs;
+
     notifyChange();
 
-    runSupabaseWrite('Restore JSON ke Supabase', client => seedAllToSupabase(client, buildCurrentSnapshot()));
-    addActivityLog('system', 'Restore Data Berhasil', 'Database berhasil dipulihkan dari berkas cadangan JSON.');
-    return true;
+    const client = ensureSupabaseClient();
+    let syncedToSupabase = false;
+    if (client) {
+      isSyncingToSupabase = true;
+      notifyChange();
+      try {
+        await seedAllToSupabase(client, buildCurrentSnapshot());
+        lastSupabaseError = null;
+        syncedToSupabase = true;
+      } finally {
+        isSyncingToSupabase = false;
+        notifyChange();
+      }
+    }
+
+    addActivityLog(
+      'system',
+      'Restore Data Berhasil',
+      `Database dipulihkan (${preview.scopeLabel}, mode: ${mode === 'merge' ? 'Gabung Tahun Ajaran' : 'Pulihkan Penuh'}).`
+    );
+
+    return {
+      syncedToSupabase,
+      scopeLabel: preview.scopeLabel,
+      restoredAssessments: data.assessments.length
+    };
   } catch (e) {
     console.error('Import failed', e);
     throw e;

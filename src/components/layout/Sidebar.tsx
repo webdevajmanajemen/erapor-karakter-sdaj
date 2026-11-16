@@ -8,6 +8,7 @@ import {
   Sparkles,
   ClipboardCheck,
   Printer,
+  HardDriveDownload,
   Settings,
   ChevronRight,
   ShieldCheck,
@@ -27,6 +28,7 @@ export type NavTab =
   | 'characters'
   | 'assessments'
   | 'reports'
+  | 'backup'
   | 'settings';
 
 interface SidebarProps {
@@ -96,6 +98,11 @@ export function Sidebar({
       id: 'reports',
       label: 'Cetak Rapor',
       icon: <Printer className="w-5 h-5 shrink-0" />
+    },
+    {
+      id: 'backup',
+      label: 'Backup Database',
+      icon: <HardDriveDownload className="w-5 h-5 shrink-0" />
     },
     {
       id: 'settings',

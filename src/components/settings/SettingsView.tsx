@@ -52,7 +52,7 @@ interface SettingsViewProps {
   onResetDefaultData: () => void;
   onClearDummyData: () => void;
   onExportJson: () => void;
-  onImportJson: (json: string) => void;
+  onImportJson: (json: string) => Promise<unknown> | void;
 }
 
 export function SettingsView({
@@ -252,10 +252,10 @@ export function SettingsView({
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async evt => {
       try {
         const text = evt.target?.result as string;
-        onImportJson(text);
+        await onImportJson(text);
         success('Pemulihan Selesai', 'Database aplikasi berhasil dipulihkan dari cadangan.');
       } catch (err: any) {
         error('Gagal Memulihkan Cadangan', err.message);

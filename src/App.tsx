@@ -12,8 +12,10 @@ import { StudentsView } from './components/students/StudentsView';
 import { CharactersView } from './components/characters/CharactersView';
 import { AssessmentsView } from './components/assessments/AssessmentsView';
 import { ReportsView } from './components/reports/ReportsView';
+import { BackupView } from './components/backup/BackupView';
 import { SettingsView } from './components/settings/SettingsView';
 import * as storage from './services/storageService';
+import { RestoreMode } from './utils/backupHelpers';
 import { authenticateAdmin, isAdminOnlyTab } from './utils/assessmentHelpers';
 import {
   SchoolProfile,
@@ -154,9 +156,10 @@ function MainApp() {
   };
 
   // Import JSON Backup
-  const handleImportJson = (jsonString: string) => {
-    storage.importDatabaseFromJson(jsonString);
+  const handleImportJson = async (jsonString: string, mode: RestoreMode = 'replace') => {
+    const res = await storage.importDatabaseFromJson(jsonString, mode);
     reloadAllData();
+    return res;
   };
 
   // Page titles
@@ -192,6 +195,10 @@ function MainApp() {
     reports: {
       title: 'Cetak & Unduh Rapor Karakter',
       subtitle: 'Format resmi cetak A4 / F4 Legal dengan kop surat dan tanda tangan lengkap'
+    },
+    backup: {
+      title: 'Backup & Restore Database',
+      subtitle: 'Cadangkan database per tahun ajaran maupun keseluruhan serta pulihkan sewaktu-waktu'
     },
     settings: {
       title: 'Pengaturan Sistem & Database',
@@ -375,6 +382,19 @@ function MainApp() {
                   gradeOptions={gradeOptions}
                   assessments={assessments}
                   initialSelectedClass={preselectedClassForReports}
+                />
+              )}
+
+              {activeTab === 'backup' && isAdminLoggedIn && (
+                <BackupView
+                  schoolProfile={schoolProfile}
+                  teachers={teachers}
+                  classes={classes}
+                  students={students}
+                  indicators={indicators}
+                  assessments={assessments}
+                  onExportByYear={storage.exportDatabaseByYearToJson}
+                  onRestoreJson={handleImportJson}
                 />
               )}
 
