@@ -110,6 +110,7 @@ export function ReportsView({
     if (!studentToPrint) return;
 
     if (action === 'print') {
+      window.focus();
       window.print();
       return;
     }
@@ -117,8 +118,7 @@ export function ReportsView({
     if (!reportRef.current) return;
 
     setIsGeneratingPdf(true);
-    const paperLabel = paperSize === 'F4' ? 'F4 / Folio (215 × 330 mm)' : 'A4 (210 × 297 mm)';
-    info('Menyiapkan Dokumen PDF', `Sedang memproses 2 halaman rapor format ${paperLabel}...`);
+    info('Menyiapkan Dokumen PDF', 'Sedang memproses 2 halaman rapor siswa...');
 
     try {
       const pageElements = reportRef.current.querySelectorAll<HTMLElement>('.print-page');
@@ -249,24 +249,24 @@ export function ReportsView({
               </p>
             </div>
 
-            {/* IDENTITAS SISWA (SIMETRIS 2x2, FONT NAMA SISWA SEUKURAN DENGAN KOLOM LAIN, STATUS & FASE DIHAPUS) */}
+            {/* IDENTITAS SISWA (SIMETRIS 2x2, FONT NAMA SISWA & NISN/NIS SEJAJAR + BOLD) */}
             <div className="grid grid-cols-2 gap-y-2.5 gap-x-8 text-xs font-medium pb-3 border-b-2 border-slate-300">
-              <div className="flex items-center">
+              <div className="flex items-baseline">
                 <span className="w-28 text-slate-600 font-bold shrink-0">Nama Siswa</span>
                 <span className="font-bold text-slate-900 text-xs sm:text-sm">: {student.name}</span>
               </div>
-              <div className="flex items-center">
+              <div className="flex items-baseline">
                 <span className="w-28 text-slate-600 font-bold shrink-0">Kelas</span>
-                <span className="font-bold text-slate-900 text-xs sm:text-sm">: Kelas {student.className}</span>
+                <span className="font-bold text-slate-900 text-xs sm:text-sm">: {student.className}</span>
               </div>
 
-              <div className="flex items-center">
+              <div className="flex items-baseline">
                 <span className="w-28 text-slate-600 font-bold shrink-0">NISN / NIS</span>
-                <span className="font-mono font-bold text-slate-900 text-xs sm:text-sm">
+                <span className="font-bold text-slate-900 text-xs sm:text-sm tabular-nums">
                   : {student.nisn ? `${student.nisn} / ${student.nis}` : `- / ${student.nis}`}
                 </span>
               </div>
-              <div className="flex items-center">
+              <div className="flex items-baseline">
                 <span className="w-28 text-slate-600 font-bold shrink-0">Wali Kelas</span>
                 <span className="font-bold text-slate-900 text-xs sm:text-sm">: {studentHomeroom?.name || '-'}</span>
               </div>
@@ -551,26 +551,26 @@ export function ReportsView({
               </button>
             </div>
 
-            {/* Unified Cetak & Unduh Rapor (PDF) */}
-            <div className="inline-flex rounded-xl shadow-md bg-amber-500 hover:bg-amber-600 transition-all overflow-hidden">
-              <button
-                type="button"
-                disabled={isGeneratingPdf || !activeStudent}
-                onClick={() => handlePrintOrDownload('download')}
-                className="inline-flex items-center gap-2 px-4 py-2.5 text-slate-950 text-xs font-bold transition-all active:scale-98 cursor-pointer disabled:opacity-50"
-              >
-                <Download className="w-4 h-4 text-slate-950" />
-                <span>{isGeneratingPdf ? `Memproses ${paperSize}...` : `Cetak & Unduh Rapor (${paperSize})`}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handlePrintOrDownload('print')}
-                className="px-2.5 py-2.5 border-l border-amber-600 text-slate-950 hover:bg-amber-600 transition-colors cursor-pointer"
-                title="Buka Dialog Print Browser Langsung"
-              >
-                <Printer className="w-4 h-4" />
-              </button>
-            </div>
+            {/* Tombol Cetak (Membuka Window Dialog Print) & Unduh PDF */}
+            <button
+              type="button"
+              disabled={!activeStudent}
+              onClick={() => handlePrintOrDownload('print')}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-md bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold transition-all active:scale-98 cursor-pointer disabled:opacity-50"
+            >
+              <Printer className="w-4 h-4 text-slate-950" />
+              <span>Cetak &amp; Unduh Rapor</span>
+            </button>
+            <button
+              type="button"
+              disabled={isGeneratingPdf || !activeStudent}
+              onClick={() => handlePrintOrDownload('download')}
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+              title="Unduh langsung sebagai berkas PDF"
+            >
+              <Download className="w-4 h-4 text-blue-600" />
+              <span>{isGeneratingPdf ? 'Memproses PDF...' : 'Unduh PDF'}</span>
+            </button>
           </div>
         </div>
 
@@ -657,7 +657,7 @@ export function ReportsView({
                       : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
                   }`}
                 >
-                  {s.name.split(' ')[0]} ({s.nis.slice(-4)})
+                  {s.name}
                 </button>
               );
             })}

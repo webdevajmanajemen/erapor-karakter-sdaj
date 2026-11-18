@@ -64,6 +64,11 @@
     justify-content: space-between !important;
   }
 
+  .report-student-wrapper:last-child .print-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
   .print-page.page-f4 {
     width: 215mm !important;
     min-height: 330mm !important;
