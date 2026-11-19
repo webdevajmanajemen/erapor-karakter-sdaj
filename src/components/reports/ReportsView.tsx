@@ -21,6 +21,7 @@ import {
 } from '../../types';
 import { SchoolLogo } from '../ui/SchoolLogo';
 import { useToast } from '../../context/ToastContext';
+import { buildReportCategoryRows } from '../../utils/reportHelpers';
 
 interface ReportsViewProps {
   students: Student[];
@@ -196,13 +197,10 @@ export function ReportsView({
     const targetClassItem = classes.find(c => c.name === student.className);
     const studentClassLevel = targetClassItem?.level || parseInt(student.className[0]) || 1;
 
-    // Filter indicators by the student's class level (1-6)
-    const levelIndicators = indicators.filter(i => (i.level || 1) === studentClassLevel);
-    const effectiveIndicators = levelIndicators.length > 0 ? levelIndicators : indicators.filter(i => (i.level || 1) === 1);
-
-    const islamIndicators = effectiveIndicators.filter(i => i.categoryId === 'ISLAM');
-    const alamIndicators = effectiveIndicators.filter(i => i.categoryId === 'ALAM');
-    const sainsIndicators = effectiveIndicators.filter(i => i.categoryId === 'SAINS');
+    // Build table rows per category strictly for student's class level (show "-" when unconfigured or unselected A/B/C)
+    const islamRows = buildReportCategoryRows('ISLAM', studentClassLevel, subCharacters, indicators, studentAssessment);
+    const alamRows = buildReportCategoryRows('ALAM', studentClassLevel, subCharacters, indicators, studentAssessment);
+    const sainsRows = buildReportCategoryRows('SAINS', studentClassLevel, subCharacters, indicators, studentAssessment);
 
     // Page styling based on selected paper size: A4 (210x297mm) vs F4/Legal (215x330mm)
     const isF4 = paperSize === 'F4';
@@ -293,35 +291,35 @@ export function ReportsView({
                   </tr>
                 </thead>
                 <tbody>
-                  {islamIndicators.map((ind, idx) => {
-                    const item = studentAssessment?.items?.[ind.id];
-                    const grade = item?.grade || '-';
-                    const notes = item?.notes || ind.defaultDescriptionPrefix || '-';
-
-                    return (
-                      <tr key={ind.id} className="align-top">
-                        <td className="border border-slate-400 py-2 px-2 text-center font-bold text-slate-700">
-                          {idx + 1}
-                        </td>
-                        <td className="border border-slate-400 py-2 px-3">
-                          <div className="text-[11px] font-black text-blue-900 uppercase tracking-wide mb-0.5">
-                            {getSubName(ind.subCharacterId)}
-                          </div>
-                          <div className="font-bold text-slate-950 leading-snug">
-                            {ind.name}
-                          </div>
-                        </td>
-                        <td className="border border-slate-400 py-2 px-2 text-center">
-                          <span className="font-black text-lg text-blue-900">
-                            {grade}
-                          </span>
-                        </td>
-                        <td className="border border-slate-400 py-2 px-3 leading-relaxed text-slate-900 font-medium">
-                          {notes}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {islamRows.map((row, idx) => (
+                    <tr key={row.key} className="align-top">
+                      <td className="border border-slate-400 py-2 px-2 text-center font-bold text-slate-700">
+                        {idx + 1}
+                      </td>
+                      <td className="border border-slate-400 py-2 px-3">
+                        {row.isUnconfigured ? (
+                          <div className="font-bold text-slate-950 leading-snug">-</div>
+                        ) : (
+                          <>
+                            <div className="text-[11px] font-black text-blue-900 uppercase tracking-wide mb-0.5">
+                              {row.subName}
+                            </div>
+                            <div className="font-bold text-slate-950 leading-snug">
+                              {row.indicatorName}
+                            </div>
+                          </>
+                        )}
+                      </td>
+                      <td className="border border-slate-400 py-2 px-2 text-center">
+                        <span className="font-black text-lg text-blue-900">
+                          {row.grade}
+                        </span>
+                      </td>
+                      <td className="border border-slate-400 py-2 px-3 leading-relaxed text-slate-900 font-medium">
+                        {row.notes}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -347,35 +345,35 @@ export function ReportsView({
                   </tr>
                 </thead>
                 <tbody>
-                  {alamIndicators.map((ind, idx) => {
-                    const item = studentAssessment?.items?.[ind.id];
-                    const grade = item?.grade || '-';
-                    const notes = item?.notes || ind.defaultDescriptionPrefix || '-';
-
-                    return (
-                      <tr key={ind.id} className="align-top">
-                        <td className="border border-slate-400 py-2 px-2 text-center font-bold text-slate-700">
-                          {idx + 1}
-                        </td>
-                        <td className="border border-slate-400 py-2 px-3">
-                          <div className="text-[11px] font-black text-emerald-800 uppercase tracking-wide mb-0.5">
-                            {getSubName(ind.subCharacterId)}
-                          </div>
-                          <div className="font-bold text-slate-950 leading-snug">
-                            {ind.name}
-                          </div>
-                        </td>
-                        <td className="border border-slate-400 py-2 px-2 text-center">
-                          <span className="font-black text-lg text-emerald-800">
-                            {grade}
-                          </span>
-                        </td>
-                        <td className="border border-slate-400 py-2 px-3 leading-relaxed text-slate-900 font-medium">
-                          {notes}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {alamRows.map((row, idx) => (
+                    <tr key={row.key} className="align-top">
+                      <td className="border border-slate-400 py-2 px-2 text-center font-bold text-slate-700">
+                        {idx + 1}
+                      </td>
+                      <td className="border border-slate-400 py-2 px-3">
+                        {row.isUnconfigured ? (
+                          <div className="font-bold text-slate-950 leading-snug">-</div>
+                        ) : (
+                          <>
+                            <div className="text-[11px] font-black text-emerald-800 uppercase tracking-wide mb-0.5">
+                              {row.subName}
+                            </div>
+                            <div className="font-bold text-slate-950 leading-snug">
+                              {row.indicatorName}
+                            </div>
+                          </>
+                        )}
+                      </td>
+                      <td className="border border-slate-400 py-2 px-2 text-center">
+                        <span className="font-black text-lg text-emerald-800">
+                          {row.grade}
+                        </span>
+                      </td>
+                      <td className="border border-slate-400 py-2 px-3 leading-relaxed text-slate-900 font-medium">
+                        {row.notes}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -418,35 +416,35 @@ export function ReportsView({
                   </tr>
                 </thead>
                 <tbody>
-                  {sainsIndicators.map((ind, idx) => {
-                    const item = studentAssessment?.items?.[ind.id];
-                    const grade = item?.grade || '-';
-                    const notes = item?.notes || ind.defaultDescriptionPrefix || '-';
-
-                    return (
-                      <tr key={ind.id} className="align-top">
-                        <td className="border border-slate-400 py-2 px-2 text-center font-bold text-slate-700">
-                          {idx + 1}
-                        </td>
-                        <td className="border border-slate-400 py-2 px-3">
-                          <div className="text-[11px] font-black text-amber-900 uppercase tracking-wide mb-0.5">
-                            {getSubName(ind.subCharacterId)}
-                          </div>
-                          <div className="font-bold text-slate-950 leading-snug">
-                            {ind.name}
-                          </div>
-                        </td>
-                        <td className="border border-slate-400 py-2 px-2 text-center">
-                          <span className="font-black text-lg text-amber-800">
-                            {grade}
-                          </span>
-                        </td>
-                        <td className="border border-slate-400 py-2 px-3 leading-relaxed text-slate-900 font-medium">
-                          {notes}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {sainsRows.map((row, idx) => (
+                    <tr key={row.key} className="align-top">
+                      <td className="border border-slate-400 py-2 px-2 text-center font-bold text-slate-700">
+                        {idx + 1}
+                      </td>
+                      <td className="border border-slate-400 py-2 px-3">
+                        {row.isUnconfigured ? (
+                          <div className="font-bold text-slate-950 leading-snug">-</div>
+                        ) : (
+                          <>
+                            <div className="text-[11px] font-black text-amber-900 uppercase tracking-wide mb-0.5">
+                              {row.subName}
+                            </div>
+                            <div className="font-bold text-slate-950 leading-snug">
+                              {row.indicatorName}
+                            </div>
+                          </>
+                        )}
+                      </td>
+                      <td className="border border-slate-400 py-2 px-2 text-center">
+                        <span className="font-black text-lg text-amber-800">
+                          {row.grade}
+                        </span>
+                      </td>
+                      <td className="border border-slate-400 py-2 px-3 leading-relaxed text-slate-900 font-medium">
+                        {row.notes}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -551,7 +549,7 @@ export function ReportsView({
               </button>
             </div>
 
-            {/* Tombol Cetak (Membuka Window Dialog Print) & Unduh PDF */}
+            {/* Tombol Cetak Rapor (Membuka Window Dialog Print) & Unduh PDF */}
             <button
               type="button"
               disabled={!activeStudent}
@@ -559,7 +557,7 @@ export function ReportsView({
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-md bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold transition-all active:scale-98 cursor-pointer disabled:opacity-50"
             >
               <Printer className="w-4 h-4 text-slate-950" />
-              <span>Cetak &amp; Unduh Rapor</span>
+              <span>Cetak Rapor</span>
             </button>
             <button
               type="button"

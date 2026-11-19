@@ -145,9 +145,9 @@ export function CharactersView({
     setIndicatorSubId(ind.subCharacterId);
     setIndicatorLevel(ind.level || 1);
     setIndicatorName(ind.name);
-    setIndicatorPrefixA(ind.descriptionPrefixA ?? ind.defaultDescriptionPrefix ?? '');
-    setIndicatorPrefixB(ind.descriptionPrefixB ?? ind.defaultDescriptionPrefix ?? '');
-    setIndicatorPrefixC(ind.descriptionPrefixC ?? ind.defaultDescriptionPrefix ?? '');
+    setIndicatorPrefixA(ind.descriptionPrefixA ?? '');
+    setIndicatorPrefixB(ind.descriptionPrefixB ?? '');
+    setIndicatorPrefixC(ind.descriptionPrefixC ?? '');
     setIsIndicatorModalOpen(true);
   };
 
@@ -161,7 +161,7 @@ export function CharactersView({
     const prefixA = indicatorPrefixA.trim();
     const prefixB = indicatorPrefixB.trim();
     const prefixC = indicatorPrefixC.trim();
-    const fallbackDefault = prefixA || prefixB || prefixC || 'Ananda mampu menunjukkan...';
+    const fallbackDefault = prefixA || prefixB || prefixC || '';
 
     const ind: CharacterIndicator = {
       id: editingIndicator ? editingIndicator.id : 'ind-' + Date.now() + '-' + Math.random().toString(36).substring(2, 5),
@@ -170,9 +170,9 @@ export function CharactersView({
       level: Number(indicatorLevel) || 1,
       name: indicatorName.trim(),
       defaultDescriptionPrefix: fallbackDefault,
-      descriptionPrefixA: prefixA || fallbackDefault,
-      descriptionPrefixB: prefixB || fallbackDefault,
-      descriptionPrefixC: prefixC || fallbackDefault,
+      descriptionPrefixA: prefixA,
+      descriptionPrefixB: prefixB,
+      descriptionPrefixC: prefixC,
       order: editingIndicator ? editingIndicator.order : indicators.length + 1
     };
     onSaveIndicator(ind);
