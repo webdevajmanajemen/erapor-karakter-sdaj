@@ -401,6 +401,7 @@ export function AssessmentsView({
     activeClass: string;
     inactiveClass: string;
     badgeColor: string;
+    inactiveBadgeColor: string;
     headerClass: string;
     numberBg: string;
   }[] = [
@@ -409,8 +410,9 @@ export function AssessmentsView({
       title: 'Karakter Islam',
       icon: <BookOpen className="w-4 h-4" />,
       activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md font-extrabold',
-      inactiveClass: 'bg-blue-50/50 text-blue-900 border-blue-200 hover:bg-blue-100/60 font-bold',
+      inactiveClass: 'bg-blue-50/50 text-black border-blue-200 hover:bg-blue-100/60 font-bold',
       badgeColor: 'text-blue-100',
+      inactiveBadgeColor: 'text-black',
       headerClass: 'bg-blue-50/90 border-blue-200 text-blue-950',
       numberBg: 'bg-blue-600 text-white'
     },
@@ -419,8 +421,9 @@ export function AssessmentsView({
       title: 'Karakter Alam',
       icon: <Leaf className="w-4 h-4" />,
       activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-md font-extrabold',
-      inactiveClass: 'bg-emerald-50/50 text-emerald-900 border-emerald-200 hover:bg-emerald-100/60 font-bold',
+      inactiveClass: 'bg-emerald-50/50 text-black border-emerald-200 hover:bg-emerald-100/60 font-bold',
       badgeColor: 'text-emerald-100',
+      inactiveBadgeColor: 'text-black',
       headerClass: 'bg-emerald-50/90 border-emerald-200 text-emerald-950',
       numberBg: 'bg-emerald-600 text-white'
     },
@@ -429,8 +432,9 @@ export function AssessmentsView({
       title: 'Karakter Sains',
       icon: <Atom className="w-4 h-4" />,
       activeClass: 'bg-amber-500 text-slate-950 border-amber-500 shadow-md font-extrabold',
-      inactiveClass: 'bg-amber-50/50 text-amber-950 border-amber-200 hover:bg-amber-100/60 font-bold',
+      inactiveClass: 'bg-amber-50/50 text-black border-amber-200 hover:bg-amber-100/60 font-bold',
       badgeColor: 'text-amber-950',
+      inactiveBadgeColor: 'text-black',
       headerClass: 'bg-amber-50/90 border-amber-200 text-amber-950',
       numberBg: 'bg-amber-500 text-slate-950 font-black'
     }
@@ -852,7 +856,7 @@ export function AssessmentsView({
                 {cat.icon}
                 <span className="text-sm font-black">{cat.title}</span>
               </div>
-              <p className={`text-[11px] font-semibold ${cat.badgeColor}`}>
+              <p className={`text-[11px] font-semibold ${isActive ? cat.badgeColor : cat.inactiveBadgeColor}`}>
                 {catFilled} dari {catInds.length} Indikator Terisi
               </p>
             </button>
