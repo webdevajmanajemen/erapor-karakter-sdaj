@@ -205,7 +205,7 @@ export function ReportsView({
     // Page styling based on selected paper size: A4 (210x297mm) vs F4/Legal (215x330mm)
     const isF4 = paperSize === 'F4';
     const pageStyle: React.CSSProperties = {
-      padding: '10mm',
+      padding: '20mm 10mm 10mm 10mm',
       width: isF4 ? '215mm' : '210mm',
       minHeight: isF4 ? '330mm' : '297mm',
       boxSizing: 'border-box'
@@ -240,10 +240,10 @@ export function ReportsView({
               </div>
             </div>
 
-            {/* SUB HEADER TAHUN AJARAN */}
+            {/* SUB HEADER SEMESTER & TAHUN AJARAN */}
             <div className="text-center py-1.5 bg-slate-100 rounded-lg border border-slate-300 print:bg-slate-100">
               <p className="text-xs sm:text-[13px] font-black uppercase tracking-widest text-slate-900">
-                TAHUN AJARAN {academicYear} — SEMESTER {semester === '1' ? '1 (GANJIL)' : '2 (GENAP)'}
+                SEMESTER {semester === '1' ? '1 (GANJIL)' : '2 (GENAP)'} — TAHUN AJARAN {academicYear}
               </p>
             </div>
 
@@ -285,9 +285,9 @@ export function ReportsView({
                 <thead>
                   <tr className="bg-blue-100/90 text-blue-950 font-extrabold uppercase text-xs">
                     <th className="border border-slate-400 py-2 px-2 text-center w-10">No</th>
-                    <th className="border border-slate-400 py-2 px-3 w-[34%]">Indikator Karakter</th>
+                    <th className="border border-slate-400 py-2 px-3 text-center w-[34%]">Indikator Karakter</th>
                     <th className="border border-slate-400 py-2 px-2 text-center w-14">Nilai</th>
-                    <th className="border border-slate-400 py-2 px-3">Deskripsi Nilai</th>
+                    <th className="border border-slate-400 py-2 px-3 text-center">Deskripsi Nilai</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -339,9 +339,9 @@ export function ReportsView({
                 <thead>
                   <tr className="bg-emerald-100/90 text-emerald-950 font-extrabold uppercase text-xs">
                     <th className="border border-slate-400 py-2 px-2 text-center w-10">No</th>
-                    <th className="border border-slate-400 py-2 px-3 w-[34%]">Indikator Karakter</th>
+                    <th className="border border-slate-400 py-2 px-3 text-center w-[34%]">Indikator Karakter</th>
                     <th className="border border-slate-400 py-2 px-2 text-center w-14">Nilai</th>
-                    <th className="border border-slate-400 py-2 px-3">Deskripsi Nilai</th>
+                    <th className="border border-slate-400 py-2 px-3 text-center">Deskripsi Nilai</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -410,9 +410,9 @@ export function ReportsView({
                 <thead>
                   <tr className="bg-amber-100/90 text-amber-950 font-extrabold uppercase text-xs">
                     <th className="border border-slate-400 py-2 px-2 text-center w-10">No</th>
-                    <th className="border border-slate-400 py-2 px-3 w-[34%]">Indikator Karakter</th>
+                    <th className="border border-slate-400 py-2 px-3 text-center w-[34%]">Indikator Karakter</th>
                     <th className="border border-slate-400 py-2 px-2 text-center w-14">Nilai</th>
-                    <th className="border border-slate-400 py-2 px-3">Deskripsi Nilai</th>
+                    <th className="border border-slate-400 py-2 px-3 text-center">Deskripsi Nilai</th>
                   </tr>
                 </thead>
                 <tbody>
